@@ -265,3 +265,16 @@ for(i in 2:100){
 }
 
 new_gif
+
+
+# testing for spatial autocorrelation-------------------------------------------
+
+# https://stats.idre.ucla.edu/r/faq/how-can-i-calculate-morans-i-in-r/ 
+
+library(spdep) 
+
+# start with a subset of data for faster calculations
+
+data2011 <- filter(compShort, year == 2011)
+
+
