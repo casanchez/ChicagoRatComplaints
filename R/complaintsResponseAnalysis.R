@@ -5,6 +5,7 @@ library(dplyr)
 library(ggmap)
 library(ggplot2)
 library(sp)
+library(sf)
 library(OpenStreetMap)
 library(raster)
 
@@ -13,6 +14,7 @@ library(raster)
 #devtools::install_github("thomasp85/patchwork")
 library(gganimate)
 library(gifski)
+library(magick)
 library(patchwork)
 library(transformr)
 library(png)
@@ -146,7 +148,7 @@ ggplot(data = subset(compShort, Community.Area %in% c(1:12)),
   geom_bar() +
   facet_wrap(~Community.Area)
 
-# plotting complaints spatially-------------------------------------------------
+# plotting complaints spatially (using open map)--------------------------------
 
 # create spatial points object
 points <- SpatialPoints(coords = compShort[, c("Longitude", "Latitude")], 
@@ -159,9 +161,6 @@ chicago_open <- openmap(upperLeft = c(bbox(extent(points)*1.1)[4],
                                 bbox(extent(points)*1.1)[3]),
                  type = "bing")
 
-# use UTM 16 projection
-# test <- openproj(chicago_open, projection = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") 
-
 # open map is in mercator projection by default
 # project the map into lat long
 chicago_proj <- openproj(chicago_open)
@@ -171,9 +170,9 @@ autoplot(chicago_proj) +
   geom_point(data = compShort, 
              aes(x = Longitude, y = Latitude), 
              shape = 21, color = "red", size = 0.5)
-# there have been complaints basically everywhere, so not super informative
 
-# animated plot-----------------------------------------------------------------
+# there have been complaints basically everywhere, so not super informative
+# let's make animated plot
 
 # https://github.com/thomasp85/gganimate
 # https://www.datanovia.com/en/blog/gganimate-how-to-create-plots-with-beautiful-animation-in-r/
@@ -189,11 +188,7 @@ autoplot(chicago_proj) +
        subtitle = "Date:{frame_time}") +
   transition_time(Creation.Date) 
 
-# need to slow it down
-
 # next thing: would be nice to have side by side plot showing the seasonal, sinusoidal nature of complaints
-# moveVis does this--look at source code
-# https://github.com/16eagle/moveVis
 
 # concatenate complaints by when they were created, calculate daily sum
 compbyCD <- compShort %>%
@@ -211,8 +206,7 @@ ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
   geom_point(aes(group = seq_along(Creation.Date))) +
   transition_reveal(Creation.Date) 
 
-
-# these are working animation wise, but aren't showing exactly what I need data wise
+# these are working animation wise, but aren't showing exactly what I need data wise:
 
 # line is gradually revealed
 ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
@@ -245,15 +239,11 @@ p1 <- autoplot(chicago_proj) +
 
 p1_gif <- animate(p1, width = 240, height = 240)
 
-
-p2 <-ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
+p2 <- ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
   geom_point(aes(group = seq_along(Creation.Date))) +
   transition_reveal(Creation.Date) 
 
-
 p2_gif <- animate(p2, width = 240, height = 240)
-
-library(magick)
 
 p1_mgif <- image_read(p1_gif)
 p2_mgif <- image_read(p2_gif)
@@ -266,15 +256,53 @@ for(i in 2:100){
 
 new_gif
 
+# plotting complaints spatially (using Chicago shapefile)-----------------------
+
+chicagoBoundary <- st_read("./Data/GIS/chicagoBoundary.shp")
+
+options(gganimate.nframes = 412, gganimate.duration = 60)
+
+ggplot() + 
+  geom_sf(data = chicagoBoundary, color = "black", fill = "gray") + 
+  geom_point(data = compShort, 
+             aes(x = Longitude, y = Latitude), 
+             shape = 21, color = "red", size = 0.5) +
+  coord_sf() +
+  labs(title = "Rat complaints",
+       subtitle = "Date:{frame_time}") +
+  transition_time(Creation.Date) 
 
 # testing for spatial autocorrelation-------------------------------------------
 
 # https://stats.idre.ucla.edu/r/faq/how-can-i-calculate-morans-i-in-r/ 
 
-library(spdep) 
 
-# start with a subset of data for faster calculations
+# plotting hotspots (kernel density)--------------------------------------------
+#https://stackoverflow.com/questions/45694234/hotspots-map-using-kernel-density-estimation-in-r
 
-data2011 <- filter(compShort, year == 2011)
+library(spatstat) 
 
+
+
+# this is year to year, which is too coarse but code works at least
+
+chicago_owin <- as(chicago_sp, "owin") 
+
+# need to fix the color scale, because it changes from plot to plot
+# this is getting there, but not quite there yet
+breakpoints <- seq(9e4, 2e6, 1e5)
+
+for(i in 2011:2018){
+  data <- filter(compShort, year == i)
+  
+  # create a point pattern
+  dta <- ppp(data$Longitude, data$Latitude, 
+             window = chicago_owin)
+  
+  dta <- density(dta)
+  
+  plot(dta, main = paste("Density plot of rat complaints:", i), 
+       col = terrain.colors(19), breaks = breakpoints)
+  plot(chicago_sp, add = TRUE)
+}
 
