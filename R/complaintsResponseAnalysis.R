@@ -73,6 +73,8 @@ compShort$Response.Time <- difftime(compShort$Completion.Date,
                                     compShort$Creation.Date, units = "days")
 compShort$Response.Time <- as.numeric(compShort$Response.Time)
 
+baitings <- dplyr::filter(compShort, MRA2 == "Baited")
+  
 # summary stats about dataset---------------------------------------------------
 
 # total number of complaints
@@ -104,6 +106,9 @@ commAreas <- compShort %>%
 
 # barchart showing complaints by date
 ggplot(data = compShort, aes(x = Creation.Date)) +
+  geom_bar()
+
+ggplot(data = baitings, aes(x = Creation.Date)) +
   geom_bar()
 
 # histogram of response times
@@ -148,31 +153,22 @@ ggplot(data = subset(compShort, Community.Area %in% c(1:12)),
   geom_bar() +
   facet_wrap(~Community.Area)
 
-# plotting complaints spatially (using open map)--------------------------------
+# plotting complaints spatially (using chicago boundary shapefile)--------------
 
-# create spatial points object
-points <- SpatialPoints(coords = compShort[, c("Longitude", "Latitude")], 
-                        proj4string = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +towgs84=0,0,0"))
+chicagoBoundary <- st_read("./Data/GIS/chicagoBoundary.shp")
 
-# use open street maps to get local Chicago map
-chicago_open <- openmap(upperLeft = c(bbox(extent(points)*1.1)[4], 
-                               bbox(extent(points)*1.1)[1]),
-                 lowerRight = c(bbox(extent(points)*1.1)[2],
-                                bbox(extent(points)*1.1)[3]),
-                 type = "bing")
+#options(gganimate.nframes = 100, gganimate.duration = 60)
 
-# open map is in mercator projection by default
-# project the map into lat long
-chicago_proj <- openproj(chicago_open)
-
-# plot cases
-autoplot(chicago_proj) +
+# plot complaints
+ggplot() + 
+  geom_sf(data = chicagoBoundary, color = "black", fill = "gray") + 
   geom_point(data = compShort, 
              aes(x = Longitude, y = Latitude), 
-             shape = 21, color = "red", size = 0.5)
+             shape = 21, color = "red", size = 0.5) +
+  coord_sf() 
 
-# there have been complaints basically everywhere, so not super informative
-# let's make animated plot
+# there have been complaints basically everywhere from 2011-2018, so not super informative
+# let's make animated plot to show changes over time
 
 # https://github.com/thomasp85/gganimate
 # https://www.datanovia.com/en/blog/gganimate-how-to-create-plots-with-beautiful-animation-in-r/
@@ -180,10 +176,12 @@ autoplot(chicago_proj) +
 # https://towardsdatascience.com/create-animated-bar-charts-using-r-31d09e5841da 
 # animated plot of complaints by date
 # takes a little while to load
-autoplot(chicago_proj) +
+ggplot() + 
+  geom_sf(data = chicagoBoundary, color = "black", fill = "gray") + 
   geom_point(data = compShort, 
              aes(x = Longitude, y = Latitude), 
              shape = 21, color = "red", size = 0.5) +
+  coord_sf() +
   labs(title = "Rat complaints",
        subtitle = "Date:{frame_time}") +
   transition_time(Creation.Date) 
@@ -229,40 +227,7 @@ ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
 
 # https://github.com/thomasp85/gganimate/wiki/Animation-Composition
 
-p1 <- autoplot(chicago_proj) +
-  geom_point(data = compShort, 
-             aes(x = Longitude, y = Latitude), 
-             shape = 21, color = "red", size = 0.5) +
-  labs(title = "Rat complaints",
-       subtitle = "Date:{frame_time}") +
-  transition_time(Creation.Date) 
-
-p1_gif <- animate(p1, width = 240, height = 240)
-
-p2 <- ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
-  geom_point(aes(group = seq_along(Creation.Date))) +
-  transition_reveal(Creation.Date) 
-
-p2_gif <- animate(p2, width = 240, height = 240)
-
-p1_mgif <- image_read(p1_gif)
-p2_mgif <- image_read(p2_gif)
-
-new_gif <- image_append(c(p1_mgif[1], p2_mgif[1]))
-for(i in 2:100){
-  combined <- image_append(c(p1_mgif[i], p2_mgif[i]))
-  new_gif <- c(new_gif, combined)
-}
-
-new_gif
-
-# plotting complaints spatially (using Chicago shapefile)-----------------------
-
-chicagoBoundary <- st_read("./Data/GIS/chicagoBoundary.shp")
-
-options(gganimate.nframes = 412, gganimate.duration = 60)
-
-ggplot() + 
+p1 <- ggplot() + 
   geom_sf(data = chicagoBoundary, color = "black", fill = "gray") + 
   geom_point(data = compShort, 
              aes(x = Longitude, y = Latitude), 
@@ -272,17 +237,56 @@ ggplot() +
        subtitle = "Date:{frame_time}") +
   transition_time(Creation.Date) 
 
+p1_gif <- animate(p1, nframes = 300, duration = 60, width = 240, height = 240)
+
+p2 <- ggplot(data = compbyCD, aes(x = Creation.Date, y = numComplaints)) +
+  geom_point(aes(group = seq_along(Creation.Date))) +
+  transition_reveal(Creation.Date) 
+
+p2_gif <- animate(p2, nframes = 300, duration = 60, width = 240, height = 240)
+
+p1_mgif <- image_read(p1_gif)
+p2_mgif <- image_read(p2_gif)
+
+new_gif <- image_append(c(p1_mgif[1], p2_mgif[1]))
+for(i in 2:300){
+  combined <- image_append(c(p1_mgif[i], p2_mgif[i]))
+  new_gif <- c(new_gif, combined)
+}
+
+new_gif
+
+# plotting complaints spatially (using openmap)-----------------------
+
+# # create spatial points object
+# points <- SpatialPoints(coords = compShort[, c("Longitude", "Latitude")], 
+#                         proj4string = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +towgs84=0,0,0"))
+# 
+# # use open street maps to get local Chicago map
+# chicago_open <- openmap(upperLeft = c(bbox(extent(points)*1.1)[4], 
+#                                       bbox(extent(points)*1.1)[1]),
+#                         lowerRight = c(bbox(extent(points)*1.1)[2],
+#                                        bbox(extent(points)*1.1)[3]),
+#                         type = "bing")
+# 
+# # open map is in mercator projection by default
+# # project the map into lat long
+# chicago_proj <- openproj(chicago_open)
+# 
+# # plot cases
+# autoplot(chicago_proj) +
+#   geom_point(data = compShort, 
+#              aes(x = Longitude, y = Latitude), 
+#              shape = 21, color = "red", size = 0.5)
+
 # testing for spatial autocorrelation-------------------------------------------
 
 # https://stats.idre.ucla.edu/r/faq/how-can-i-calculate-morans-i-in-r/ 
-
 
 # plotting hotspots (kernel density)--------------------------------------------
 #https://stackoverflow.com/questions/45694234/hotspots-map-using-kernel-density-estimation-in-r
 
 library(spatstat) 
-
-
 
 # this is year to year, which is too coarse but code works at least
 
@@ -290,7 +294,24 @@ chicago_owin <- as(chicago_sp, "owin")
 
 # need to fix the color scale, because it changes from plot to plot
 # this is getting there, but not quite there yet
-breakpoints <- seq(9e4, 2e6, 1e5)
+
+densMin <- vector()
+densMax <- vector()
+
+for(i in 2011:2018){
+  data <- filter(compShort, year == i)
+  
+  # create a point pattern
+  dta <- ppp(data$Longitude, data$Latitude, 
+             window = chicago_owin)
+  
+  dta <- density(dta)
+  
+  densMin <- c(densMin, min(dta))
+  densMax <- c(densMin, max(dta))
+}
+
+breakpoints <- seq(min(densMin), max(densMax), length.out = 7)
 
 for(i in 2011:2018){
   data <- filter(compShort, year == i)
@@ -302,7 +323,15 @@ for(i in 2011:2018){
   dta <- density(dta)
   
   plot(dta, main = paste("Density plot of rat complaints:", i), 
-       col = terrain.colors(19), breaks = breakpoints)
+       col = terrain.colors(6), breaks = breakpoints)
   plot(chicago_sp, add = TRUE)
 }
 
+# what happens post-baiting-----------------------------------------------------
+
+# general idea of what we want to do:
+
+# have a baiting point
+# choose some buffer (around 150m, could play with it) to match rodent movement
+# choose some time window
+# measure the number of complaints in the buffer, in the time window before and after the baiting event

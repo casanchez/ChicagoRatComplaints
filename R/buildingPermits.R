@@ -55,6 +55,14 @@ library(rspatial)
 
 library(rgdal)
 
+
+# need to figure out the height and width of chicago, so that I can figure out how many 150 cells fit it, and then use that to set up the dimensions of the raster
+
+
+r <- raster(ncol=150, nrow=150)
+extent(r) <- extent(chicago_sp)
+r2 <- rasterize(chicago_sp, r)
+
 # load shapefile as spatial polygons data frame
 chicago_sp <- readOGR("./Data/GIS","chicagoBoundary")
 
@@ -62,11 +70,19 @@ chicago_sp <- readOGR("./Data/GIS","chicagoBoundary")
 chicago_rast <- raster(chicago_sp)
 
 # change resolution of raster to get more quadrats
-res(chicago_rast) <- 0.01
+res(chicago_rast) <- 0.00180723
 
 # transfer values associated with object type spatial data (points, lines, polygons) to raster cells
 # now the raster has attributes
 chicago_rast <- rasterize(chicago_sp, chicago_rast)
+
+# I want to reproject so we can get some units of measurement
+# but can't project a raster that has no values
+# chicago_proj <- projectRaster(chicago_rast, crs = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
+# 
+# res(chicago_rast) <- 150
+# 
+# chicago_rast <- rasterize(chicago_sp, chicago_rast)
 
 plot(chicago_rast)
 
