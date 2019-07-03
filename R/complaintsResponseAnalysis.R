@@ -335,3 +335,82 @@ for(i in 2011:2018){
 # choose some buffer (around 150m, could play with it) to match rodent movement
 # choose some time window
 # measure the number of complaints in the buffer, in the time window before and after the baiting event
+
+# might need to have some kind of factor to account for expected changes in complaints based on season?
+# ie if you make a complaint at peak complaint time, does the decrease reflect a typical seasonal change, or is it due to the baiting?
+library(geosphere)
+
+# set time window (days)
+timewindow <- c(7, 14, 30)
+# can set several time windows to examine how complaints change in the time after baiting
+
+# set distance (meters)
+radius <- 150
+
+baitings$sumCompPre <- 0
+baitings$sumCompPostShort <- 0
+baitings$sumCompPostMed <- 0
+baitings$sumCompPostLong <- 0
+
+# will take a long time to go through every row
+# might be good to do a random sample?
+
+# for the most recent samples, we don't have complaint data far into the future
+# so let's just trim the dataset to exclude the last 4 months, say
+baitings2 <- baitings %>%
+  filter(Creation.Date <= as.Date("2018-07-30"))
+
+# for(i in 1:nrow(baitings)){
+for(i in 1:200){
+  
+  # define which baiting event we're looking at
+  target <- baitings2[i, ]
+  targetXY <- target[, c("Longitude", "Latitude")]
+  
+  # when did the COMPLAINT occur?
+  created <- baitings2[i, "Creation.Date"]
+  # complaints made (timewindow) days prior to when target complaint was made
+  compPre <- compShort %>% 
+      filter(Creation.Date  >= created - timewindow[1] & Creation.Date  <= created)
+  # will throw an error if there aren't any complaints in the timewindow
+  if(dim(compPre)[1] > 0){
+  # create distance matrix (in meters) to calculate distance between target point and all other points in temporal proximity
+  distPre <- distm(targetXY, compPre[, c("Longitude", "Latitude")], 
+                     fun = distGeo)
+  # complaints within (radius) meters of target point
+  distPreRad <- distPre[distPre <= radius]
+  # store number in data frame
+  baitings2[i, "sumCompPre"] <- length(distPreRad)
+  }
+
+  # when did the BAITING occur?
+  completed <- baitings2[i, "Completion.Date"]
+  
+  for(j in 1:3){
+    # complaints made (timewindow) days after baiting
+    compPost <- compShort %>% 
+      filter(Creation.Date  >= completed & Creation.Date <= completed + timewindow[j])
+    
+    if(dim(compPost)[1] > 0){
+    
+      # create distance matrix (in meters) to calculate distance between target point and all other points in temporal proximity
+      distPost <- distm(targetXY, compPost[, c("Longitude", "Latitude")],
+                         fun = distGeo)
+      # complaints within (radius) meters of target point
+      distPostRad <- distPost[distPost <= radius]
+      # store number in data frame
+      baitings2[i, 29 + j] <- length(distPostRad)
+    }
+  }
+}
+
+par(mfrow = c(1, 4))
+boxplot(baitings2$sumCompPre, ylim = c(0, 35),
+        main = paste0("Complaints ", timewindow[1], " days pre-baiting"))
+boxplot(baitings2$sumCompPostShort, ylim = c(0, 35),
+        main = paste0("Complaints ", timewindow[1], " days post-baiting"))
+boxplot(baitings2$sumCompPostMed, ylim = c(0, 35),
+        main = paste0("Complaints ", timewindow[2], " days post-baiting"))
+boxplot(baitings2$sumCompPostLong, ylim = c(0, 35),
+        main = paste0("Complaints ", timewindow[3], " days post-baiting"))
+

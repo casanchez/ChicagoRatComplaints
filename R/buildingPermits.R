@@ -30,14 +30,14 @@ buildingShort <- buildingShort[!is.na(buildingShort$LATITUDE), ]
 ggplot(data = buildingShort, aes(x = ISSUE_DATE, fill = PERMIT_TYPE)) +
   geom_bar()
 
-autoplot(chicago_proj) +
-  geom_point(data = buildingShort, 
-             aes(x = LONGITUDE, y = LATITUDE, colour = PERMIT_TYPE), 
-             shape = 21, size = 0.5) +
-  labs(title = "Building permit issue dates",
-       subtitle = "Date:{frame_time}") +
-  transition_time(ISSUE_DATE) +
-  ease_aes('linear')
+# autoplot(chicago_proj) +
+#   geom_point(data = buildingShort, 
+#              aes(x = LONGITUDE, y = LATITUDE, colour = PERMIT_TYPE), 
+#              shape = 21, size = 0.5) +
+#   labs(title = "Building permit issue dates",
+#        subtitle = "Date:{frame_time}") +
+#   transition_time(ISSUE_DATE) +
+#   ease_aes('linear')
 
 # not quite working because it skips over days where there weren't permits issued
 # might need to aggregate data by month instead of day by day
@@ -47,70 +47,72 @@ autoplot(chicago_proj) +
 # add a month/year column for aggregation
 #buildingShort$monthyear <- format(buildingShort$ISSUE_DATE,"%m-%Y")
 
-# number of points in quadrats--------------------------------------------------
+# rasterizing point data--------------------------------------------------------
 # https://rspatial.org/analysis/8-pointpat.html
 
 #devtools::install_github('rspatial/rspatial')
-library(rspatial)
+#library(rspatial)
 
 library(rgdal)
 
+# how to get the right "res" values to end up with a grid cell size of 150 m when projected
+chicago_shp <- readOGR("./Data/GIS","chicagoBoundary")
+chicago_rast <- raster(chicago_shp)
+res(chicago_rast) <- c(0.01, 0.01)
+chicago_rast <- rasterize(chicago_shp, chicago_rast)
+chicago_proj <- projectRaster(chicago_rast, crs = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
+newres <- 150/(res(chicago_proj)/0.01)
 
-# need to figure out the height and width of chicago, so that I can figure out how many 150 cells fit it, and then use that to set up the dimensions of the raster
-
-
-r <- raster(ncol=150, nrow=150)
-extent(r) <- extent(chicago_sp)
-r2 <- rasterize(chicago_sp, r)
+# r <- raster(nrow=292, ncol=242)
+# extent(r) <- extent(chicago_shp)
+# r2 <- rasterize(chicago_shp, r)
 
 # load shapefile as spatial polygons data frame
-chicago_sp <- readOGR("./Data/GIS","chicagoBoundary")
+chicago_shp <- readOGR("./Data/GIS","chicagoBoundary")
 
 # create rasterLayer object from shapefile
-chicago_rast <- raster(chicago_sp)
+chicago_rast <- raster(chicago_shp)
 
-# change resolution of raster to get more quadrats
-res(chicago_rast) <- 0.00180723
+# change resolution so that grid cells will end up 150m by 150m (approx range of rat) once projected
+res(chicago_rast) <- newres
 
 # transfer values associated with object type spatial data (points, lines, polygons) to raster cells
 # now the raster has attributes
-chicago_rast <- rasterize(chicago_sp, chicago_rast)
+chicago_rast <- rasterize(chicago_shp, chicago_rast)
 
-# I want to reproject so we can get some units of measurement
-# but can't project a raster that has no values
-# chicago_proj <- projectRaster(chicago_rast, crs = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
-# 
-# res(chicago_rast) <- 150
-# 
-# chicago_rast <- rasterize(chicago_sp, chicago_rast)
+# reproject the raster
+chicago_proj <- projectRaster(chicago_rast, crs = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
 
-plot(chicago_rast)
+# I think these should be all yellow, like chicago_rast
+# something might be going on...
+plot(chicago_proj)
 
-# create quadrats (spatial polygons) from the raster
-quads <- as(chicago_rast, 'SpatialPolygons')
-
-# overlay the quadrats on the map
-plot(quads, add = TRUE)
-
-# add locations of building permits
-points(x = buildingShort$LONGITUDE, y = buildingShort$LATITUDE, col='red', cex=.5)
-
+# locations where building permits were issued
 permitPoints <- SpatialPoints(coords = buildingShort[, c("LONGITUDE", 
                                                          "LATITUDE")], 
                               proj4string = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +towgs84=0,0,0"))
 
+# project to same crs so we can overlay
+permPtsProj <- spTransform(permitPoints, CRS = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
+
+# looks like there is an issue...not aligning
+plot(chicago_proj)
+points(permPtsProj)
+
 # use rasterize to count number of permits in each raster cell
-# background = 0 assigns other points a zero value
-nPermCell <- rasterize(coordinates(permitPoints), chicago_rast, fun = 'count', background = 0)
+# background = 0: value to put in the cells that are not covered by any of the features of permPtsProj
+nPermCell <- rasterize(coordinates(permPtsProj), chicago_proj, fun = 'count', background = 0)
 
 # plot number of permits, overlay chicago boundary
 plot(nPermCell)
-plot(chicago_sp, add = TRUE)
+#plot(chicago_shp, add = TRUE)
+
+test <- spTransform(chicago_shp, CRS = "+proj=utm +zone=16 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
 
 # exclude the areas outside chicago boundary
-nPermCell2 <- mask(nPermCell, chicago_rast)
+nPermCell2 <- mask(nPermCell, chicago_proj)
 plot(nPermCell2)
-plot(chicago_sp, add = TRUE)
+#plot(chicago_shp, add = TRUE)
 
 # calculate frequency of permits/cell
 freqPerm <- freq(nPermCell2, useNA = 'no')
@@ -124,11 +126,25 @@ freqPerm
 # right now, all building permits from all years are overlaid
 # but we could do month by month, for each year
 
-data2011 <- filter(compShort, year == 2011)
+# what would the code look like to loop through and extract values to points?
+# also look at JP's Ebola code
 
-ratpts2011 <- SpatialPoints(coords = data2011[, c("Longitude", "Latitude")], 
-                                proj4string = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +towgs84=0,0,0"))
-
-data2011$buildingPermits <- raster::extract(nPermCell2, ratpts2011)
-
-
+for(i in 2011:2018){
+   
+  yearSubset <- filter(compShort, year == i)
+  
+  for(j in 1:12){
+    monthSubset <- filter(compShort, month == j)
+    
+    rasterIJ <- paste0("sanitation_", j, "_", i, ".tif")
+    
+    r <- raster(rasterIJ)
+    
+    something <- raster::extract(r, monthSubset[, c("Longitude", "Latitude")])
+    
+    monthSubset <- cbind(monthSubset, something)
+   
+    listoflists[[i]][[j]] <- monthSubset
+     
+  }
+}
