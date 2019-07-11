@@ -35,7 +35,7 @@ complaints$Number.of.Premises.Baited <- as.numeric(complaints$Number.of.Premises
 complaints$Number.of.Premises.with.Garbage <- as.numeric(complaints$Number.of.Premises.with.Garbage)
 complaints$Number.of.Premises.with.Rats <- as.numeric(complaints$Number.of.Premises.with.Rats)
 
-# need to concatenate "most recent action" categories
+# concatenate "most recent action" categories
 summary(complaints$Most.Recent.Action)
 
 complaints$MRA2 <- plyr::revalue(complaints$Most.Recent.Action,
@@ -73,6 +73,7 @@ compShort$Response.Time <- difftime(compShort$Completion.Date,
                                     compShort$Creation.Date, units = "days")
 compShort$Response.Time <- as.numeric(compShort$Response.Time)
 
+# subset only complaints where the reponse was a baiting
 baitings <- dplyr::filter(compShort, MRA2 == "Baited")
   
 # summary stats about dataset---------------------------------------------------
@@ -340,17 +341,17 @@ for(i in 2011:2018){
 # ie if you make a complaint at peak complaint time, does the decrease reflect a typical seasonal change, or is it due to the baiting?
 library(geosphere)
 
-# set time window (days)
-timewindow <- c(7, 14, 30)
-# can set several time windows to examine how complaints change in the time after baiting
+# set several time windows to examine how complaints change pre/post baiting (days)
+twindow <- c(7, 14, 30)
 
 # set distance (meters)
 radius <- 150
 
-baitings$sumCompPre <- 0
-baitings$sumCompPostShort <- 0
-baitings$sumCompPostMed <- 0
-baitings$sumCompPostLong <- 0
+baitings$compPreMed <- 0
+baitings$compPreShort <- 0
+baitings$compPostShort <- 0
+baitings$compPostMed <- 0
+baitings$compPostLong <- 0
 
 # will take a long time to go through every row
 # might be good to do a random sample?
@@ -360,57 +361,201 @@ baitings$sumCompPostLong <- 0
 baitings2 <- baitings %>%
   filter(Creation.Date <= as.Date("2018-07-30"))
 
-# for(i in 1:nrow(baitings)){
-for(i in 1:200){
-  
-  # define which baiting event we're looking at
-  target <- baitings2[i, ]
-  targetXY <- target[, c("Longitude", "Latitude")]
-  
-  # when did the COMPLAINT occur?
-  created <- baitings2[i, "Creation.Date"]
-  # complaints made (timewindow) days prior to when target complaint was made
-  compPre <- compShort %>% 
-      filter(Creation.Date  >= created - timewindow[1] & Creation.Date  <= created)
-  # will throw an error if there aren't any complaints in the timewindow
-  if(dim(compPre)[1] > 0){
-  # create distance matrix (in meters) to calculate distance between target point and all other points in temporal proximity
-  distPre <- distm(targetXY, compPre[, c("Longitude", "Latitude")], 
-                     fun = distGeo)
-  # complaints within (radius) meters of target point
-  distPreRad <- distPre[distPre <= radius]
-  # store number in data frame
-  baitings2[i, "sumCompPre"] <- length(distPreRad)
-  }
 
-  # when did the BAITING occur?
-  completed <- baitings2[i, "Completion.Date"]
+longs <- baitings2[, "Longitude"]
+lats <- baitings2[, "Latitude"]
+compDates <- baitings2[, "Completion.Date"]
+
+rowCt <- 100
+
+start_time <- Sys.time()
+# for(i in 1:nrow(baitings)){
+for(i in 1:rowCt){
   
-  for(j in 1:3){
-    # complaints made (timewindow) days after baiting
-    compPost <- compShort %>% 
-      filter(Creation.Date  >= completed & Creation.Date <= completed + timewindow[j])
+  # obtain coordinates for focal baiting
+  targetXY <- c(longs[i], lats[i])
+  
+  # when did the baiting occur?
+  baitDate <- compDates[i]
+  
+  # complaints before the baiting (doesn't include day of baiting)
+  bigWindowPre <- compShort %>% 
+    filter(Creation.Date >= baitDate - twindow[2] & Creation.Date < baitDate)
+  
+  if(dim(bigWindowPre)[1] > 0){
     
-    if(dim(compPost)[1] > 0){
+    distMPre <- distm(targetXY, bigWindowPre[, c("Longitude", "Latitude")], 
+                      fun = distGeo)
     
-      # create distance matrix (in meters) to calculate distance between target point and all other points in temporal proximity
-      distPost <- distm(targetXY, compPost[, c("Longitude", "Latitude")],
-                         fun = distGeo)
-      # complaints within (radius) meters of target point
-      distPostRad <- distPost[distPost <= radius]
-      # store number in data frame
-      baitings2[i, 29 + j] <- length(distPostRad)
-    }
+    # have to exclude 0 value (distance of focal point to itself)
+    radPtsPre <- bigWindowPre[which(distMPre <= radius & distMPre > 0), ]
+    
+    baitings2$compPreMed[i] <- nrow(radPtsPre)
+    
+    # filter to shorter time window
+    radPtsPre2 <- radPtsPre %>% 
+      filter(Creation.Date >= baitDate - twindow[1])
+    
+    baitings2$compPreShort[i] <- nrow(radPtsPre2)
+  }
+  
+  # complaints after the baiting occured
+  bigWindowPost <- compShort %>% 
+    filter(Creation.Date > baitDate & Creation.Date <= baitDate + twindow[3])
+  
+  if(dim(bigWindowPost)[1] > 0){
+    
+    distMPost <- distm(targetXY, bigWindowPost[, c("Longitude", "Latitude")], 
+                       fun = distGeo)
+    
+    radPtsPost <- bigWindowPost[which(distMPost <= radius & distMPost > 0), ]
+    
+    baitings2$compPostLong[i] <- nrow(radPtsPost)
+    
+    # filter to medium time window
+    radPtsPost2 <- radPtsPost %>% 
+      filter(Creation.Date <= baitDate + twindow[2])
+    
+    baitings2$compPostMed[i] <- nrow(radPtsPost2)
+    
+    # filter to short time window
+    radPtsPost3 <- radPtsPost %>% 
+      filter(Creation.Date <= baitDate + twindow[1])
+    
+    baitings2$compPostShort[i] <- nrow(radPtsPost3)
+  }
+}
+end_time <- Sys.time()
+
+end_time - start_time
+
+# took about 12 minutes to run 5000 lines of data
+
+par(mfrow = c(1, 1))
+boxplot(baitings2[1:5000, c(29:33)])
+
+library(vioplot)
+vioplot(baitings2[1:5000, c(29:33)])
+
+# regression modeling-----------------------------------------------------------
+
+# need to convert data from wide to long format
+
+library(tidyr)
+
+baitings3 <- baitings2 %>% 
+  slice(1:rowCt) %>% 
+  dplyr::select(one_of(c("Longitude", "Latitude", "Completion.Date", 
+                         "Community.Area", "compPreShort", "compPostShort")))
+
+
+library(rgdal)
+library(sp)
+
+nonBaitings <- as.data.frame(matrix(0, nrow = rowCt, ncol = 6))
+names(nonBaitings) <- c("Longitude", "Latitude", "Completion.Date", 
+                         "Community.Area", "compPreShort", "compPostShort")
+
+# need to create non-baiting points
+Chicago <- readOGR("./Data/GIS","chicagoBoundary")
+bgPts <- spsample(Chicago, 100, type = "random")
+nonBaitings[, 1:2] <- bgPts@coords
+
+# assign date to each point
+startDate <- min(baitings3$Completion.Date)
+endDate <- max(baitings3$Completion.Date)
+datesVec <- seq(startDate, endDate, by = 1)
+for (i in 1:rowCt){
+  d <- sample(datesVec, 1)
+  nonBaitings$Completion.Date[i] <- d
+}
+nonBaitings$Completion.Date <- as.Date(nonBaitings$Completion.Date)
+
+# obtain community area for each location
+CAs <- readOGR("./Data/GIS","chicagoCommAreas")
+pts <- SpatialPoints(bgPts@coords, proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+pts2 <- over(pts, CAs)
+nonBaitings$Community.Area <- pts2$area_num_1
+
+# remove NA values
+nonBaitings <- nonBaitings[complete.cases(nonBaitings), ]
+
+# calculate pre/post baitings
+
+longs <- nonBaitings[, "Longitude"]
+lats <- nonBaitings[, "Latitude"]
+compDates <- nonBaitings[, "Completion.Date"]
+
+
+start_time <- Sys.time()
+
+for(i in 1:nrow(nonBaitings)){
+  
+  # obtain coordinates for focal baiting
+  targetXY <- c(longs[i], lats[i])
+  
+  # when did the baiting occur?
+  baitDate <- compDates[i]
+  
+  # complaints before the baiting (doesn't include day of baiting)
+  bigWindowPre <- compShort %>% 
+    filter(Creation.Date >= baitDate - twindow[2] & Creation.Date < baitDate)
+  
+  if(dim(bigWindowPre)[1] > 0){
+    
+    distMPre <- distm(targetXY, bigWindowPre[, c("Longitude", "Latitude")], 
+                      fun = distGeo)
+    
+    # have to exclude 0 value (distance of focal point to itself)
+    radPtsPre <- bigWindowPre[which(distMPre <= radius & distMPre > 0), ]
+    
+    #nonBaitings$compPreMed[i] <- nrow(radPtsPre)
+    
+    # filter to shorter time window
+    radPtsPre2 <- radPtsPre %>% 
+      filter(Creation.Date >= baitDate - twindow[1])
+    
+    nonBaitings$compPreShort[i] <- nrow(radPtsPre2)
+  }
+  
+  # complaints after the baiting occured
+  bigWindowPost <- compShort %>% 
+    filter(Creation.Date > baitDate & Creation.Date <= baitDate + twindow[3])
+  
+  if(dim(bigWindowPost)[1] > 0){
+    
+    distMPost <- distm(targetXY, bigWindowPost[, c("Longitude", "Latitude")], 
+                       fun = distGeo)
+    
+    radPtsPost <- bigWindowPost[which(distMPost <= radius & distMPost > 0), ]
+    
+    #nonBaitings$compPostLong[i] <- nrow(radPtsPost)
+    
+    # filter to medium time window
+    # radPtsPost2 <- radPtsPost %>% 
+    #   filter(Creation.Date <= baitDate + twindow[2])
+    # 
+    # nonBaitings$compPostMed[i] <- nrow(radPtsPost2)
+    
+    # filter to short time window
+    radPtsPost3 <- radPtsPost %>% 
+      filter(Creation.Date <= baitDate + twindow[1])
+    
+    nonBaitings$compPostShort[i] <- nrow(radPtsPost3)
   }
 }
 
-par(mfrow = c(1, 4))
-boxplot(baitings2$sumCompPre, ylim = c(0, 35),
-        main = paste0("Complaints ", timewindow[1], " days pre-baiting"))
-boxplot(baitings2$sumCompPostShort, ylim = c(0, 35),
-        main = paste0("Complaints ", timewindow[1], " days post-baiting"))
-boxplot(baitings2$sumCompPostMed, ylim = c(0, 35),
-        main = paste0("Complaints ", timewindow[2], " days post-baiting"))
-boxplot(baitings2$sumCompPostLong, ylim = c(0, 35),
-        main = paste0("Complaints ", timewindow[3], " days post-baiting"))
+#-------------------
 
+baitings3$baited <- "Yes"
+nonBaitings$baited <- "No"
+
+allData <- rbind(baitings3, nonBaitings)
+allData$baited <- as.factor(allData$baited)
+
+
+library(glmmTMB)
+
+M1 <- glmmTMB(compPostShort ~ compPreShort + baited + (1|Community.Area), family = poisson, data = allData)
+
+summary(M1)
