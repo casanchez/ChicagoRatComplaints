@@ -20,74 +20,67 @@ library(transformr)
 library(png)
 
 
+# functions---------------------------------------------------------------------
+
+# https://bbolker.github.io/mixedmodels-misc/glmmFAQ.html#overdispersion
+overdisp_fun <- function(model) {
+  rdf <- df.residual(model)
+  rp <- residuals(model,type="pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq/rdf
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+
 # load rat complaint and baiting data-------------------------------------------
-# large dataset, takes a few seconds to load
 
-complaints <- read.csv("./Data/ratComplaintsResponses.csv", header = TRUE, 
-                       na.strings = c(""))
+complaints <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
 
-# data formatting---------------------------------------------------------------
+complaints <- complaints[, -1]
 
-names(complaints)[1] <- "Creation.Date"
-
+complaints$ZIP.Code <- as.factor(complaints$ZIP.Code)
+complaints$Ward <- as.factor(complaints$Ward)
+complaints$Police.District <- as.factor(complaints$Police.District)
 complaints$Community.Area <- as.factor(complaints$Community.Area)
 
-# remove commas
-complaints[, 'Number.of.Premises.Baited'] <- gsub(",","", complaints[, 'Number.of.Premises.Baited']) 
-complaints[, 'Number.of.Premises.with.Garbage'] <- gsub(",","", complaints[, 'Number.of.Premises.with.Garbage']) 
-complaints[, 'Number.of.Premises.with.Rats'] <- gsub(",","", complaints[, 'Number.of.Premises.with.Rats']) 
-
-# change from character to numeric
-complaints$Number.of.Premises.Baited <- as.numeric(complaints$Number.of.Premises.Baited)
-complaints$Number.of.Premises.with.Garbage <- as.numeric(complaints$Number.of.Premises.with.Garbage)
-complaints$Number.of.Premises.with.Rats <- as.numeric(complaints$Number.of.Premises.with.Rats)
-
-# there are some issues going on between descriptions and data
-# can have "inspected and baited" but 0 premises baited
-
-# concatenate "most recent action" categories
-summary(complaints$Most.Recent.Action)
-
-# complaints$MRA2 <- plyr::revalue(complaints$Most.Recent.Action,
-#                   c("Area Baited" = "Baited",
-#                     "Backyard serviced, contact made" = "Baited",
-#                     "Inspected and baited" = "Baited",
-#                     "Completed" = "Baited",
-#                     "Area inspected, no cause and no baiting" = "No cause",
-#                     "No contact, left door hanger" = "No contact",
-#                     "No contact/gate locked; left door hanger." = "No contact",
-#                     "Area inspected, no baiting, owner responsibility" = "Owner responsibility",
-#                     "Create Work Order" = "Other",
-#                     "Refer to Sanitation for Inspection" = "Other"))
-# complaints$MRA2 <- as.factor(complaints$MRA2)
-
-xtabs(~complaints$Number.of.Premises.Baited + complaints$Most.Recent.Action)
-        
-# change complaint and responses to date format
+# date formatting
 complaints$Creation.Date <- as.Date(complaints$Creation.Date, "%m/%d/%Y") 
 complaints$Completion.Date <- as.Date(complaints$Completion.Date, "%m/%d/%Y") 
 
-# restrict time range
-compShort <- complaints %>%
-  filter(Creation.Date  >= as.Date("2011-01-01") & Creation.Date  <= as.Date("2018-11-30"))
-
-# there are multiple records with NA values
-# just exclude? only ~2% of dataset
-compShort <- compShort[complete.cases(compShort), ]
-
-# # add a month/year column for aggregation
-# compShort$monthyear <- format(compShort$Creation.Date,"%m-%Y")
-# add a year column for aggregation
-compShort$year <- format(compShort$Creation.Date,"%Y")
-
 # calculate time between complaint and response
-compShort$Response.Time <- difftime(compShort$Completion.Date, 
-                                    compShort$Creation.Date, units = "days")
-compShort$Response.Time <- as.numeric(compShort$Response.Time)
+complaints$Response.Time <- difftime(complaints$Completion.Date, 
+                                     complaints$Creation.Date, units = "days")
+complaints$Response.Time <- as.numeric(complaints$Response.Time)
 
-# subset only complaints where the reponse was a baiting
-baitings <- dplyr::filter(compShort, Number.of.Premises.Baited >= 1)
-  
+# add a year column for aggregation
+complaints$year <- format(complaints$Creation.Date,"%Y")
+
+# data subsets------------------------------------------------------------------
+
+# 10 additional crews were added to DSS some time in April 2016
+# so for now, let's examine only complaints from May 2016 onwards
+# (in case responses changed drastically after adding more crews)
+# and since we don't have full data for all of Dec 2016, let's cut short at Oct
+compShort <- complaints %>% 
+  filter(Completion.Date >= as.Date("2016-05-01")) %>% 
+  filter(Completion.Date <= as.Date("2018-10-31"))
+
+# "baiting" = rats observed, at least 1 premise baited and "Most.Recent.Action" is "inspected and baited"
+baitings <- compShort %>% 
+  filter(Number.of.Premises.with.Rats > 0) %>% 
+  filter(Number.of.Premises.Baited >= 1) %>% 
+  filter(Most.Recent.Action == "Inspected and baited")
+
+# "non-baiting" = rats observed, 0 premises baited
+# will ignore Most.Recent.Action for now
+nonBaitings <- compShort %>% 
+  filter(Number.of.Premises.Baited == 0) %>% 
+  filter(Number.of.Premises.with.Rats > 0) 
+
+# NOTE: there are some issues going on between descriptions and data
+# can have "inspected and baited" but 0 premises baited
+# or "no cause" but rats observed
+
 # summary stats about dataset---------------------------------------------------
 
 # total number of complaints
@@ -141,8 +134,8 @@ ggplot(data = compShort, aes(x = year)) +
 
 # correlations between premises baited, with garbage, and with rats
 # by community area
-plot(commAreas$avgPremBaited ~ commAreas$avgPremGarbage, ylim = c(0, 10))
-plot(commAreas$avgPremBaited ~ commAreas$avgPremRats, ylim = c(0, 10))
+plot(commAreas$avgPremBaited ~ commAreas$avgPremGarbage, ylim = c(0, 15))
+plot(commAreas$avgPremBaited ~ commAreas$avgPremRats, ylim = c(0, 15))
 plot(commAreas$avgPremRats ~ commAreas$avgPremGarbage)
 # all positively correlated as we'd expect
 
@@ -352,8 +345,6 @@ for(i in 2011:2018){
 # choose some time window
 # measure the number of complaints in the buffer, in the time window before and after the baiting event
 
-# might need to have some kind of factor to account for expected changes in complaints based on season?
-# ie if you make a complaint at peak complaint time, does the decrease reflect a typical seasonal change, or is it due to the baiting?
 library(geosphere)
 
 # set several time windows to examine how complaints change pre/post baiting (days)
@@ -362,37 +353,29 @@ twindow <- c(7, 14, 30)
 # set distance (meters)
 radius <- 150
 
-baitings$compPreMed <- 0
-baitings$compPreShort <- 0
-baitings$compPostShort <- 0
-baitings$compPostMed <- 0
-baitings$compPostLong <- 0
+baitings$baited = "Yes"
+nonBaitings$baited = "No"
 
+combined <- rbind(baitings, nonBaitings)
+combined$baited <- as.factor(combined$baited)
 
-# let's restrict the minimum date to May 2016 (10 more crews were supposedly added to DSS in April)
-# and restrict the max date to the same time, two years later May 2018
-# and then let's sample rows randomly, so we hopefully get a balanced picture through time
+combined$preMed <- 0
+combined$preShort <- 0
+combined$postShort <- 0
+combined$postMed <- 0
+combined$postLong <- 0
 
-rowCt <- 4200
-
-set.seed(26)
-baitings2 <- baitings %>%
-  filter(Creation.Date <= as.Date("2018-05-01") &
-         Creation.Date >= as.Date("2016-05-01")) %>% 
-  sample_n(rowCt)
-
-# let's also trim compShort so the loop won't have to search through as much
-compShort <- compShort %>% 
-  filter(Creation.Date <= as.Date("2018-04-01") &
-           Creation.Date >= as.Date("2016-06-01"))
-
-longs <- baitings2[, "Longitude"]
-lats <- baitings2[, "Latitude"]
-compDates <- baitings2[, "Completion.Date"]
-
+# trim the complaints dataset to a month before and after the baitings
+searchComps <- complaints %>% 
+  filter(Creation.Date >= as.Date("2016-04-01")) %>% 
+  filter(Creation.Date <= as.Date("2018-11-30"))
+           
+longs <- combined[, "Longitude"]
+lats <- combined[, "Latitude"]
+compDates <- combined[, "Completion.Date"]
 
 start_time <- Sys.time()
-for(i in 1:nrow(baitings2)){
+for(i in 1:nrow(combined)){
   
   # obtain coordinates for focal baiting
   targetXY <- c(longs[i], lats[i])
@@ -401,7 +384,7 @@ for(i in 1:nrow(baitings2)){
   baitDate <- compDates[i]
   
   # complaints before the baiting (doesn't include day of baiting)
-  bigWindowPre <- compShort %>% 
+  bigWindowPre <- searchComps %>% 
     filter(Creation.Date >= baitDate - twindow[2] & Creation.Date < baitDate)
   
   if(dim(bigWindowPre)[1] > 0){
@@ -412,17 +395,17 @@ for(i in 1:nrow(baitings2)){
     # if you set "& distMPre > 0", will exclude the focal complaint)
     radPtsPre <- bigWindowPre[which(distMPre <= radius), ]
     
-    baitings2$compPreMed[i] <- nrow(radPtsPre)
+    combined$preMed[i] <- nrow(radPtsPre)
     
     # filter to shorter time window
     radPtsPre2 <- radPtsPre %>% 
       filter(Creation.Date >= baitDate - twindow[1])
     
-    baitings2$compPreShort[i] <- nrow(radPtsPre2)
+    combined$preShort[i] <- nrow(radPtsPre2)
   }
   
   # complaints after the baiting occured
-  bigWindowPost <- compShort %>% 
+  bigWindowPost <- searchComps %>% 
     filter(Creation.Date > baitDate & Creation.Date <= baitDate + twindow[3])
   
   if(dim(bigWindowPost)[1] > 0){
@@ -432,19 +415,19 @@ for(i in 1:nrow(baitings2)){
     
     radPtsPost <- bigWindowPost[which(distMPost <= radius), ]
     
-    baitings2$compPostLong[i] <- nrow(radPtsPost)
+    combined$postLong[i] <- nrow(radPtsPost)
     
     # filter to medium time window
     radPtsPost2 <- radPtsPost %>% 
       filter(Creation.Date <= baitDate + twindow[2])
     
-    baitings2$compPostMed[i] <- nrow(radPtsPost2)
+    combined$postMed[i] <- nrow(radPtsPost2)
     
     # filter to short time window
     radPtsPost3 <- radPtsPost %>% 
       filter(Creation.Date <= baitDate + twindow[1])
     
-    baitings2$compPostShort[i] <- nrow(radPtsPost3)
+    combined$postShort[i] <- nrow(radPtsPost3)
   }
 }
 end_time <- Sys.time()
@@ -452,273 +435,224 @@ end_time <- Sys.time()
 end_time - start_time
 
 
-par(mfrow = c(1, 1))
-boxplot(baitings2[, c(29:33)])
+boxplot(combined[, c(19:23)])
 
 library(vioplot)
-vioplot(baitings2[, c(29:33)])
+vioplot(combined[, c(19:23)])
 
-# # set up non-baitings-----------------------------------------------------------
-# 
-# baitings3 <- baitings2 %>% 
-#   dplyr::select(one_of(c("Longitude", "Latitude", "Completion.Date", 
-#                          "Community.Area", "compPreMed", "compPreShort", 
-#                          "compPostShort", "compPostMed", "compPostLong")))
-# baitings3$baited <- "Yes"
-# 
-# # set up empty data frame to store the non-intervention (non-baiting) points
-# nonBaitings <- as.data.frame(matrix(0, nrow = rowCt, ncol = 10))
-# names(nonBaitings) <- c("Longitude", "Latitude", "Completion.Date", 
-#                         "Community.Area", "compPreMed", "compPreShort", 
-#                         "compPostShort", "compPostMed", "compPostLong", "baited")
-# nonBaitings$baited <- "No"
-# 
-# # randomly sample points from within Chicago boundary
-# # we'll have to refine this later
-# library(rgdal)
-# Chicago <- readOGR("./Data/GIS","chicagoBoundary")
-# bgPts <- spsample(Chicago, rowCt, type = "random")
-# nonBaitings[, 1:2] <- bgPts@coords
-# 
-# # obtain community area for each location
-# CAs <- readOGR("./Data/GIS","chicagoCommAreas")
-# pts <- SpatialPoints(bgPts@coords, proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
-# pts2 <- over(pts, CAs)
-# nonBaitings$Community.Area <- pts2$area_num_1
-# 
-# # remove NA values (ie no community area)
-# nonBaitings <- nonBaitings[complete.cases(nonBaitings), ]
-# 
-# # assign date to each point
-# # at some point need to refine this to reflect non-uniform complaint creation during the year
-# startDate <- min(baitings3$Completion.Date)
-# endDate <- max(baitings3$Completion.Date)
-# datesVec <- seq(startDate, endDate, by = 1)
-# for (i in 1:nrow(nonBaitings)){
-#   d <- sample(datesVec, 1)
-#   nonBaitings$Completion.Date[i] <- d
-# }
-# nonBaitings$Completion.Date <- as.Date(nonBaitings$Completion.Date)
-# 
-# # calculate pre/post complaints
-# 
-# longs <- nonBaitings[, "Longitude"]
-# lats <- nonBaitings[, "Latitude"]
-# compDates <- nonBaitings[, "Completion.Date"]
-# 
-# 
-# for(i in 1:nrow(nonBaitings)){
-#   
-#   # obtain coordinates for focal baiting
-#   targetXY <- c(longs[i], lats[i])
-#   
-#   # when did the baiting occur?
-#   baitDate <- compDates[i]
-#   
-#   # complaints before the baiting (doesn't include day of baiting)
-#   bigWindowPre <- compShort %>% 
-#     filter(Creation.Date >= baitDate - twindow[2] & Creation.Date < baitDate)
-#   
-#   if(dim(bigWindowPre)[1] > 0){
-#     
-#     distMPre <- distm(targetXY, bigWindowPre[, c("Longitude", "Latitude")], 
-#                       fun = distGeo)
-#     
-#     # if you set "& distMPre > 0", will exclude the focal complaint)
-#     radPtsPre <- bigWindowPre[which(distMPre <= radius), ]
-#     
-#     nonBaitings$compPreMed[i] <- nrow(radPtsPre)
-#     
-#     # filter to shorter time window
-#     radPtsPre2 <- radPtsPre %>% 
-#       filter(Creation.Date >= baitDate - twindow[1])
-#     
-#     nonBaitings$compPreShort[i] <- nrow(radPtsPre2)
-#   }
-#   
-#   # complaints after the baiting occured
-#   bigWindowPost <- compShort %>% 
-#     filter(Creation.Date > baitDate & Creation.Date <= baitDate + twindow[3])
-#   
-#   if(dim(bigWindowPost)[1] > 0){
-#     
-#     distMPost <- distm(targetXY, bigWindowPost[, c("Longitude", "Latitude")], 
-#                        fun = distGeo)
-#     
-#     radPtsPost <- bigWindowPost[which(distMPost <= radius), ]
-#     
-#     nonBaitings$compPostLong[i] <- nrow(radPtsPost)
-#     
-#     # filter to medium time window
-#     radPtsPost2 <- radPtsPost %>% 
-#       filter(Creation.Date <= baitDate + twindow[2])
-#     
-#     nonBaitings$compPostMed[i] <- nrow(radPtsPost2)
-#     
-#     # filter to short time window
-#     radPtsPost3 <- radPtsPost %>% 
-#       filter(Creation.Date <= baitDate + twindow[1])
-#     
-#     nonBaitings$compPostShort[i] <- nrow(radPtsPost3)
-#   }
-# }
-# 
-# boxplot(nonBaitings[, c(5:9)])
-# vioplot(nonBaitings[, c(5:9)])
-# 
-# # regression modeling-----------------------------------------------------------
-# allData <- rbind(baitings3, nonBaitings)
-# allData$baited <- as.factor(allData$baited)
-# 
-# temps <- read.csv("./Data/dailyTemp.csv", header = TRUE, na.strings = "")
-# temps$DATE <- as.Date(temps$DATE, format = "%m/%d/%Y")
-# 
-# allData2 <- left_join(allData, temps[, c("DATE", "TAVG")], 
-#                       by = c("Completion.Date" = "DATE"))
-# 
-# library(glmmTMB)
-# library(effects)
-# 
-# 
-# M1 <- glmmTMB(compPostShort ~ compPreShort + baited + TAVG + (1|Community.Area), 
-#               zi = ~ compPreShort + baited + TAVG,
-#               family = poisson, data = allData2)
-# summary(M1)
-# plot(allEffects(M1))
-# 
-# M2 <- glmmTMB(compPostShort ~ compPreMed + baited + TAVG + (1|Community.Area), 
-#               zi = ~ compPreMed + baited + TAVG,
-#               family = poisson, data = allData2)
-# summary(M2)
-# 
-# # interestingly, initially showing opposite effect of baiting than expected
-# # could be that there are just no rats in the randomly selected points, whereas since the rat complaints are based on perception, the post-baiting number of rats is still going to be higher than in a place where there weren't any rats to begin with
-# 
-# # what if instead of the random points (which we haven't optimized how to choose), we use the natural data of non-interventions? Ie when a complaint is made but baiting doesn't occur. there wouldn't be as many cases, but it would probably be a more realistic comparison. and avoids all the issues with trying to generate semi-random complaints. but it brings us back to the problem of descriptions not matching up to numbers
+# add temperature data----------------------------------------------------------
 
-# set up non-baitings-----------------------------------------------------------
-
-baitings3 <- baitings2 %>% 
-  dplyr::select(one_of(c("Longitude", "Latitude", "Completion.Date", 
-                         "Community.Area", "compPreMed", "compPreShort", 
-                         "compPostShort", "compPostMed", "compPostLong")))
-baitings3$baited <- "Yes"
-
-# non-intervention (non-baiting) points
-# for now, will ignore the "most recent action" column and search for 0 "number of premises baited" and non-zero "number of premises with rats"
-# can they bait without making contact?
-
-nonBaitings <- complaints %>% 
-  filter(Creation.Date <= as.Date("2018-05-01") &
-           Creation.Date >= as.Date("2016-05-01")) %>% 
-  filter(Number.of.Premises.Baited == 0) %>% 
-  filter(Number.of.Premises.with.Rats > 0) 
-
-# %>% 
-#   filter(Most.Recent.Action == "Area inspected, no baiting, owner responsibility" | Most.Recent.Action == "No contact/gate locked; left door hanger." | Most.Recent.Action == "No contact, left door hanger")
-
-
-nonBaitings$compPreMed <- 0
-nonBaitings$compPreShort <- 0
-nonBaitings$compPostShort <- 0
-nonBaitings$compPostMed <- 0
-nonBaitings$compPostLong <- 0
-nonBaitings$baited <- "No"
-
-# calculate pre/post response complaints
-
-longs <- nonBaitings[, "Longitude"]
-lats <- nonBaitings[, "Latitude"]
-compDates <- nonBaitings[, "Completion.Date"]
-
-
-for(i in 1:nrow(nonBaitings)){
-  
-  # obtain coordinates for focal baiting
-  targetXY <- c(longs[i], lats[i])
-  
-  # when did the baiting occur?
-  baitDate <- compDates[i]
-  
-  # complaints before the baiting (doesn't include day of baiting)
-  bigWindowPre <- compShort %>% 
-    filter(Creation.Date >= baitDate - twindow[2] & Creation.Date < baitDate)
-  
-  if(dim(bigWindowPre)[1] > 0){
-    
-    distMPre <- distm(targetXY, bigWindowPre[, c("Longitude", "Latitude")], 
-                      fun = distGeo)
-    
-    # if you set "& distMPre > 0", will exclude the focal complaint)
-    radPtsPre <- bigWindowPre[which(distMPre <= radius), ]
-    
-    nonBaitings$compPreMed[i] <- nrow(radPtsPre)
-    
-    # filter to shorter time window
-    radPtsPre2 <- radPtsPre %>% 
-      filter(Creation.Date >= baitDate - twindow[1])
-    
-    nonBaitings$compPreShort[i] <- nrow(radPtsPre2)
-  }
-  
-  # complaints after the baiting occured
-  bigWindowPost <- compShort %>% 
-    filter(Creation.Date > baitDate & Creation.Date <= baitDate + twindow[3])
-  
-  if(dim(bigWindowPost)[1] > 0){
-    
-    distMPost <- distm(targetXY, bigWindowPost[, c("Longitude", "Latitude")], 
-                       fun = distGeo)
-    
-    radPtsPost <- bigWindowPost[which(distMPost <= radius), ]
-    
-    nonBaitings$compPostLong[i] <- nrow(radPtsPost)
-    
-    # filter to medium time window
-    radPtsPost2 <- radPtsPost %>% 
-      filter(Creation.Date <= baitDate + twindow[2])
-    
-    nonBaitings$compPostMed[i] <- nrow(radPtsPost2)
-    
-    # filter to short time window
-    radPtsPost3 <- radPtsPost %>% 
-      filter(Creation.Date <= baitDate + twindow[1])
-    
-    nonBaitings$compPostShort[i] <- nrow(radPtsPost3)
-  }
-}
-
-nonBaitings <- nonBaitings %>% 
-  dplyr::select(one_of(c("Longitude", "Latitude", "Completion.Date", 
-                         "Community.Area", "compPreMed", "compPreShort", 
-                         "compPostShort", "compPostMed", "compPostLong", "baited")))
-
-
-boxplot(nonBaitings[, c(5:9)])
-vioplot(nonBaitings[, c(5:9)])
-
-# regression modeling-----------------------------------------------------------
-allData <- rbind(baitings3, nonBaitings)
-allData$baited <- as.factor(allData$baited)
+# need to have some kind of factor to account for expected changes in complaints based on season
+# ie if you make a complaint at peak complaint time, does the decrease reflect a typical seasonal change, or is it due to the baiting?
+# we'll use daily temperature for now, since it roughly mirrors the cyclic nature of complaints
 
 temps <- read.csv("./Data/dailyTemp.csv", header = TRUE, na.strings = "")
 temps$DATE <- as.Date(temps$DATE, format = "%m/%d/%Y")
 
-allData2 <- left_join(allData, temps[, c("DATE", "TAVG")], 
+final <- left_join(combined, temps[, c("DATE", "TAVG")], 
                       by = c("Completion.Date" = "DATE"))
 
+# write.csv(final, "./Data/prepostComplaints.csv")
+
+# regression modeling-----------------------------------------------------------
 library(glmmTMB)
 library(effects)
+library(sjPlot)
+
+# NOTE: since it can take a while for rats to die, should we look at complaints 2 weeks post-baiting instead of one week?
+
+# we have count data for our response variable (number of complaints post-baiting)
+# usually modeled with Poisson or negative binomial distribution
+
+# poisson
+mPois <- glmmTMB(postShort ~ preShort + baited + TAVG + 
+                   (1|Community.Area), family = poisson, data = final)
+overdisp_fun(mPois)
+# indicates overdispersion, suggesting negative binomial might be better
+
+library(fitdistrplus)
+hist(final$postShort)
+x <- final$postShort
+descdist(x, discrete = TRUE)
+fit.nb <- fitdist(x, "nbinom")
+plot(fit.nb)
+# also suggests a negative binomial distribution
+
+mNB <- glmmTMB(postShort ~ preShort + baited + TAVG + 
+                   (1|Community.Area), family = nbinom2, data = final)
+overdisp_fun(mNB)
+# seems to be a lot better
+
+# we also have a lot of zero values
+# are they false or true zeros?
+
+# true zero: no complaints because the baiting worked
+
+# false zero: rats still there, but not observed. or rats there, but not complained about
 
 
-M1 <- glmmTMB(compPostShort ~ compPreShort + baited + TAVG + (1|Community.Area), 
-              zi = ~ compPreShort + baited + TAVG,
-              family = poisson, data = allData2)
-summary(M1)
-plot(allEffects(M1))
+# "Zero-inflated poisson regression is used to model count data that has an excess of zero counts. Further, theory suggests that the excess zeros are generated by a separate process from the count values and that the excess zeros can be modeled independently."
 
-M2 <- glmmTMB(compPostShort ~ compPreMed + baited + TAVG + (1|Community.Area), 
-              zi = ~ compPreMed + baited + TAVG,
-              family = poisson, data = allData2)
-summary(M2)
-plot(allEffects(M2))
+# "if the overdispersion in a Poisson GLM is caused by the excessive number of zeros, then the ZIP will take care of the overdispersion. But if the overdispersion is not caused by the zeros, then the ZIP is not the appropriate model either"
+
+# suspect that ZINB will be better than ZIP, but can compare with likelihood ratio test
+
+# zero inflated poisson
+mZIP <- glmmTMB(postShort ~ preShort + baited + TAVG + (1|Community.Area), 
+              zi = ~ preShort + baited + TAVG,
+              family = poisson, data = final)
+
+# zero inflated negative binomial
+# nbinom2: variance increases quadratically with the mean
+mZINB <- glmmTMB(postShort ~ preShort + baited + TAVG + (1|Community.Area), 
+                zi = ~ preShort + baited + TAVG,
+                family = nbinom2, data = final)
+
+library(lmtest)
+lrtest(mZIP, mZINB)
+
+# indicates the ZINB is better
+
+summary(mZINB)
+# the zero-inflation model estimates the probability of an extra zero such that a positive contrast indicates a higher chance of absence (e.g. baitedYes < 0 means fewer absences in sites that were baited); this is the opposite of the conditional model where a positive contrast indicates a higher abundance (e.g. baitedYes >0 means higher abundances in sites that were baited)
+
+plot_model(mZINB)
+plot(allEffects(mZINB))
+
+
+# can also fit hurdle models (zero-inflated)
+hZIP <- glmmTMB(postShort ~ preShort + baited + TAVG + (1|Community.Area), 
+               zi = ~ preShort + baited + TAVG,
+               family = truncated_poisson, data = final)
+
+hZINB <- glmmTMB(postShort ~ preShort + baited + TAVG + (1|Community.Area), 
+                   zi = ~ preShort + baited + TAVG,
+                   family = truncated_nbinom2, data = final)
+
+
+library(bbmle)
+# compare all the GLMMs
+AICtab(mPois, mNB, mZIP, mZINB, hZIP, hZINB)
+
+# zero-inflated negative binomial model is best by AIC
+
+# plotting model results--------------------------------------------------------
+
+# https://cran.r-project.org/web/packages/merTools/vignettes/Using_predictInterval.html
+
+## quick and dirty plot
+# To avoid marginalizing over or conditioning on random effects, we can refit the best model without the random effect of site; however, this is not ideal because it ignores the correlation within sites.
+mZINBfe <- glmmTMB(postShort ~ preShort + baited + TAVG, 
+                  zi = ~preShort + baited + TAVG, 
+                  family= nbinom2, data = final)
+newdata0 <- newdata <- unique(final[, c("preShort", "baited", "TAVG")])
+# the predict function has a parameter "type" that specifies whether you want predictions from the conditional model, the zero-inflation model, or the expected response that combines both parts of the model
+temp <- predict(mZINBfe, newdata, se.fit = TRUE, type = "response")
+newdata$predFE = temp$fit
+newdata$predFE.min = temp$fit-1.98*temp$se.fit
+newdata$predFE.max = temp$fit+1.98*temp$se.fit
+
+real <- plyr::ddply(final, ~ Community.Area + preShort + baited + TAVG, 
+                    summarize, m = mean(postShort))
+
+ggplot(newdata, aes(preShort, predFE)) + geom_point() +
+  facet_wrap(~baited) +
+  geom_errorbar(aes(ymin = predFE.min, ymax = predFE.max)) +
+  geom_point(data=real, colour = "orange", aes(x=preShort, y=m)) +
+  ylab("Average abundance \n including presences and absences")+
+  xlab("pre Complaints")
+# points represent site-specific average counts
+
+## alternative prediction method
+# we can predict at the population mode, by setting the random effects to zero
+
+X.cond = model.matrix(lme4::nobars(formula(mZINB)[-2]), newdata0)
+beta.cond = fixef(mZINB)$cond
+pred.cond = X.cond %*% beta.cond
+
+ziformula = mZINB$modelInfo$allForm$ziformula
+X.zi = model.matrix(lme4::nobars(ziformula), newdata0)
+beta.zi = fixef(mZINB)$zi
+pred.zi = X.zi %*% beta.zi
+
+#These are estimates of the linear predictors (i.e., predictions on the link scale: logit(prob) and log(cond)), not the predictions themselves. The easiest thing to do for the point estimates of the unconditional count (ucount) is to transform to the response scale and multiply:
+pred.ucount = exp(pred.cond)*(1-plogis(pred.zi))
+
+# For the standard errors/confidence intervals, we could use posterior predictive simulations (i.e. draw MVN samples from the parameter for the fixed effects). This conditions on/ignores uncertainty in the random-effect parameters.
+library(MASS)
+set.seed(101)
+pred.condpar.psim = mvrnorm(1000, mu=beta.cond, Sigma=vcov(mZINB)$cond)
+pred.cond.psim = X.cond %*% t(pred.condpar.psim)
+pred.zipar.psim = mvrnorm(1000,mu=beta.zi,Sigma=vcov(mZINB)$zi)
+pred.zi.psim = X.zi %*% t(pred.zipar.psim)
+pred.ucount.psim = exp(pred.cond.psim)*(1-plogis(pred.zi.psim))
+ci.ucount = t(apply(pred.ucount.psim,1,quantile,c(0.025,0.975)))
+ci.ucount = data.frame(ci.ucount)
+names(ci.ucount) = c("ucount.low","ucount.high")
+pred.ucount = data.frame(newdata0, pred.ucount, ci.ucount)
+
+# These predicted counts should be close to the median counts, so we plot them together to compare.
+real.count = plyr::ddply(final, ~preShort + baited + TAVG, summarize, m=median(postShort), mu=mean(postShort))
+
+ggplot(pred.ucount, aes(x=preShort, y=pred.ucount))+
+  facet_wrap(~baited) +
+  geom_point(shape=1, size=2)+
+  geom_errorbar(aes(ymin=ucount.low, ymax=ucount.high))+
+  geom_point(data=real.count, aes(x=preShort, y=m, colour=baited), 
+             shape=0, size=2)+
+  # geom_point(data=real.count, aes(x=preShort, y=mu, colour=baited), 
+  #            shape=5, size=2)+
+  ylab("Abundance \n including presences and absences")+
+  xlab("pre Complaints")
+# circles represent predicted unconditional counts at the mode (ie community area effect = 0) and error bars represent 95% CIs for that mode. Squares represent the observed median and diamonds represent observed means calculated across samples and community areas
+
+
+
+## simulating from a fitted model 
+
+# look at the distribution of simulated values from the best fitted model. for this we use the function simulate.glmmTMB
+
+
+#https://cran.r-project.org/web/packages/glmmTMB/vignettes/sim.html
+sims <- simulate(mZINB, seed = 1)
+simdat <- final
+simdat$postShort <- sims[[1]]
+# simdata <- transform(simdat,
+#                      )
+
+
+
+
+sims <- simulate(mZINB, seed = 1, nsim = 10)
+# this function returns a list of vectors. the list has one element for each simulation (nsim) and the vectors are the same shape as our response variable
+simdatlist=lapply(sims, function(postShort){
+  cbind(postShort, final[, c('preShort', 'baited', 'TAVG', 'Community.Area')])
+})
+
+# takes forever to run if nsim is high
+simdatsums=lapply(simdatlist, function(x){
+  plyr::ddply(x, ~preShort+baited+TAVG, summarize,
+        absence=mean(postShort==0),
+        mu=mean(postShort))
+})
+
+ssd=do.call(rbind, simdatsums)
+
+# then we can plot them with the observations summarized in the same way
+real = plyr::ddply(final, ~preShort+baited+TAVG, summarize,
+             absence=mean(postShort==0),
+             mu=mean(postShort))
+
+ggplot(ssd, aes(x=absence, color=baited))+
+  facet_wrap(~baited) +
+  geom_density(adjust=4)+
+  geom_point(data=real, aes(x=absence, y=preShort, color=baited), size=2)+
+  xlab("Probability that complaints are not made (rats are not observed)") +
+  ylab("pre complaints")
+# simulated zero counts. densities are values from 10 datasets simulated from best fit model. Points represent the observed data
+
+ggplot(ssd, aes(x=mu, color=baited))+
+  geom_density(adjust=4)+
+  geom_point(data=real, aes(x=mu, y=.5, color=baited), size=2)+
+  xlab("Complaints including zeros")+ylab(NULL)
+
