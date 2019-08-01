@@ -2,36 +2,95 @@
 library(dplyr)
 library(ggplot2)
 
+# metadata----------------------------------------------------------------------
+# PERMIT TYPE: "New Construction and Renovation" includes new projects or rehabilitations of existing buildings; "Other Construction" includes items that require plans such as cell towers and cranes; "Easy Permit" includes minor repairs that require no plans; "Wrecking/Demolition" includes private demolition of buildings and other structures; "Electrical Wiring" includes major and minor electrical work both permanent and temporary; "Sign Permit" includes signs, canopies and awnings both on private property and over the public way; "Porch Permit" includes new porch construction and renovation (defunct permit type porches are now issued under "New Construction and Renovation" directly); "Reinstate Permit" includes original permit reinstatements; "Extension Permits" includes extension of original permit when construction has not started within six months of original permit issuance.
+
+# https://www.chicago.gov/city/en/depts/bldgs/supp_info/building-permit-reinstatement-policy.html
+# A building permit is considered expired if construction has not begun within 6 months of the permit issue date or if there is more than 12 months of inactivity after construction has begun.
+
 # load building permit data-----------------------------------------------------
 # big file, takes a while
-building <- read.csv("./Data/buildingPermits.csv", header = TRUE, 
+bPermits <- read.csv("./Data/buildingPermits.csv", header = TRUE, 
                        na.strings = c(""))
 
 # convert dates to date format
-building$ISSUE_DATE <- as.Date(building$ISSUE_DATE, "%m/%d/%Y")
+bPermits$ISSUE_DATE <- as.Date(bPermits$ISSUE_DATE, "%m/%d/%Y")
+
+# add a year column for aggregation
+bPermits$year <- format(bPermits$ISSUE_DATE,"%Y")
 
 # subset relevant columns, construction types, dates
-buildingShort <- building %>%
-  dplyr::select(ID:WORK_DESCRIPTION, LATITUDE:Wards) %>%
+bpShort <- bPermits %>%
+  dplyr::select(ID:WORK_DESCRIPTION, LATITUDE:Wards, year) %>%
   filter(PERMIT_TYPE %in% c("PERMIT - NEW CONSTRUCTION", 
                             "PERMIT - WRECKING/DEMOLITION",
                             "PERMIT - PORCH CONSTRUCTION")) %>%
-  filter(ISSUE_DATE >= as.Date("2011-01-01") & ISSUE_DATE <= as.Date("2018-11-30"))
-
-#PERMIT TYPE: "New Construction and Renovation" includes new projects or rehabilitations of existing buildings; "Other Construction" includes items that require plans such as cell towers and cranes; "Easy Permit" includes minor repairs that require no plans; "Wrecking/Demolition" includes private demolition of buildings and other structures; "Electrical Wiring" includes major and minor electrical work both permanent and temporary; "Sign Permit" includes signs, canopies and awnings both on private property and over the public way; "Porch Permit" includes new porch construction and renovation (defunct permit type porches are now issued under "New Construction and Renovation" directly); "Reinstate Permit" includes original permit reinstatements; "Extension Permits" includes extension of original permit when construction has not started within six months of original permit issuance.
+  filter(ISSUE_DATE >= as.Date("2011-01-01") & ISSUE_DATE <= as.Date("2017-12-31"))
 
 # remove permits without lat/long coordinates
-buildingShort <- buildingShort[!is.na(buildingShort$LONGITUDE), ]
-buildingShort <- buildingShort[!is.na(buildingShort$LATITUDE), ]
+bpShort <- bpShort[!is.na(bpShort$LONGITUDE), ]
+
+bpShort$PERMIT_TYPE <- droplevels(bpShort$PERMIT_TYPE)
+bpShort$WORK_DESCRIPTION <- droplevels(bpShort$WORK_DESCRIPTION)
+
+# data summarizing--------------------------------------------------------------
+
+# number of permits per year, by community area
+
+CAperms <- bpShort %>% 
+  group_by(Community.Areas, year) %>% 
+  summarize(nperm = n())
+
+
+
+complaints <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
+
+complaints <- complaints[, -1]
+
+# complaints$ZIP.Code <- as.factor(complaints$ZIP.Code)
+# complaints$Ward <- as.factor(complaints$Ward)
+# complaints$Police.District <- as.factor(complaints$Police.District)
+# complaints$Community.Area <- as.factor(complaints$Community.Area)
+
+# date formatting
+complaints$Creation.Date <- as.Date(complaints$Creation.Date, "%m/%d/%Y") 
+complaints$Completion.Date <- as.Date(complaints$Completion.Date, "%m/%d/%Y") 
+
+# calculate time between complaint and response
+# complaints$Response.Time <- difftime(complaints$Completion.Date, 
+#                                      complaints$Creation.Date, units = "days")
+# complaints$Response.Time <- as.numeric(complaints$Response.Time)
+
+# add month and year columns for aggregation
+complaints$month <- format(complaints$Creation.Date,"%m")
+complaints$year <- format(complaints$Creation.Date,"%Y")
+
+compShort <- complaints %>% 
+  filter(Creation.Date >= as.Date("2011-01-01")) %>% 
+  filter(Creation.Date <= as.Date("2017-12-31"))
+
+CAcomps <- compShort %>% 
+  group_by(Community.Area, year) %>% 
+  summarize(ncomp = n())
+
+test <- CAperms
+test$ncomp <- CAcomps$ncomp
+
+ggplot(test) +
+  geom_point(aes(x = nperm, y = ncomp, color = Community.Areas)) +
+  geom_smooth(aes(x = nperm, y = ncomp), method = "lm")
+
+lm <- lm(ncomp ~ nperm, data = test)
+summary(lm)
 
 # exploratory plots-------------------------------------------------------------
 
 # number of permits over time, colored by permit type 
-ggplot(data = buildingShort, aes(x = ISSUE_DATE, fill = PERMIT_TYPE)) +
+ggplot(data = bpShort, aes(x = ISSUE_DATE, fill = PERMIT_TYPE)) +
   geom_bar()
 
 # autoplot(chicago_proj) +
-#   geom_point(data = buildingShort, 
+#   geom_point(data = bpShort, 
 #              aes(x = LONGITUDE, y = LATITUDE, colour = PERMIT_TYPE), 
 #              shape = 21, size = 0.5) +
 #   labs(title = "Building permit issue dates",
