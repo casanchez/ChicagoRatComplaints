@@ -1,42 +1,84 @@
-# complaints data---------------------------------------------------------------
-complaints <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
 
-complaints <- complaints[, -1]
+# load packages-----------------------------------------------------------------
+library(dplyr)
+library(sp)
+library(rgdal)
+library(fitdistrplus)
+library(glmmTMB)
+library(effects)
+
+# load data---------------------------------------------------------------------
+
+# some are large files, can take a while
+
+#https://data.cityofchicago.org/Service-Requests/311-Service-Requests-Rodent-Baiting-No-Duplicates/uqhs-j723
+rats <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
+
+# https://data.cityofchicago.org/Buildings/Building-Permits/ydr8-5enu
+bPermits <- read.csv("./Data/buildingPermits.csv", header = TRUE, 
+                     na.strings = "")
+
+# https://data.cityofchicago.org/Service-Requests/311-Service-Requests-Sanitation-Code-Complaints-No/rccf-5427
+san <- read.csv("./Data/sanitationComplaints.csv", header = TRUE, 
+                       na.strings = "")
+
+# https://data.cityofchicago.org/Health-Human-Services/Food-Inspections/4ijn-s7e5
+food <- read.csv("./Data/foodInspections.csv", header = TRUE, na.strings = "")
+
+# https://data.cityofchicago.org/Health-Human-Services/Census-Data-Selected-socioeconomic-indicators-in-C/kn9c-c2s2
+socio <- read.csv("./Data/socioecInd.csv", header = TRUE, na.strings = "")
+
+pop <- read.csv("./Data/CMAP.csv", header = TRUE, na.strings = c("", "n/a"))
+
+# https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-Community-Areas-current-/cauq-8yn6
+comms <- readOGR("./Data/GIS","chicagoCommAreas")
+
+# rat complaints data-----------------------------------------------------------
+
+rats <- rats[, -1]
 
 # change formats
-complaints$Creation.Date <- as.Date(complaints$Creation.Date, "%m/%d/%Y") 
-complaints$Community.Area <- as.factor(complaints$Community.Area)
+rats$Creation.Date <- as.Date(rats$Creation.Date, "%m/%d/%Y") 
+rats$Community.Area <- as.factor(rats$Community.Area)
 
 # add month and year columns for aggregation
-complaints$month <- format(complaints$Creation.Date,"%m")
-complaints$quarter <- as.factor(complaints$month)
-levels(complaints$quarter) <- list(Q1 = c("01", "02", "03"), 
+rats$month <- format(rats$Creation.Date,"%m")
+rats$quarter <- as.factor(rats$month)
+levels(rats$quarter) <- list(Q1 = c("01", "02", "03"), 
                                  Q2 = c("04", "05", "06"),
                                  Q3 = c("07", "08", "09"),
                                  Q4 = c("10", "11", "12"))
-complaints$year <- format(complaints$Creation.Date,"%Y")
+rats$year <- format(rats$Creation.Date,"%Y")
 
 # shorten so we have only full years
-compShort <- complaints %>% 
+ratShort <- rats %>% 
   filter(Creation.Date >= as.Date("2011-01-01")) %>% 
   filter(Creation.Date <= as.Date("2017-12-31"))
 
-complaints$year <- as.factor(complaints$year)
+ratShort$year <- as.factor(ratShort$year)
+
+# I think community areas are good for this dataset, but we're extracting them for all the others, so might as well be consistent
+ratPts <- SpatialPoints(ratShort[, c("Longitude", "Latitude")], 
+                         proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+ratPts2 <- over(ratPts, comms)
+ratShort$CAcalc <- ratPts2$area_num_1
+
+ratShort$CAcalc <- factor(ratShort$CAcalc, levels = c(1:77))
+
+ratShort$Community.Area == ratShort$CAcalc
+
+ratShort <- ratShort %>%
+  filter(!is.na(CAcalc))
 
 # calculate number of rat complaints per community area, each quarter of each year
-ratcompsCAQY <- compShort %>% 
-  group_by(Community.Area, year, quarter, .drop = FALSE) %>% 
+ratsCAQY <- ratShort %>% 
+  group_by(CAcalc, year, quarter, .drop = FALSE) %>% 
   summarize(ratcomp = n())
 
 # building permit data----------------------------------------------------------
 
-# big file, takes a while to load
-bPermits <- read.csv("./Data/buildingPermits.csv", header = TRUE, 
-                     na.strings = c(""))
-
 # change formats
 bPermits$ISSUE_DATE <- as.Date(bPermits$ISSUE_DATE, "%m/%d/%Y")
-bPermits$Community.Areas <- as.factor(bPermits$Community.Areas)
 
 # add month and year columns for aggregation
 bPermits$month <- format(bPermits$ISSUE_DATE,"%m")
@@ -54,26 +96,38 @@ bpShort <- bPermits %>%
                             "PERMIT - WRECKING/DEMOLITION")) %>%
   filter(ISSUE_DATE >= as.Date("2011-01-01")) %>% 
   filter(ISSUE_DATE <= as.Date("2017-12-31")) %>% 
-  filter(!is.na(Community.Areas)) %>% 
   filter(!is.na(LONGITUDE))
 
-bPermits$year <- as.factor(bPermits$year)
-  
 # drop unused levels
 bpShort$PERMIT_TYPE <- droplevels(bpShort$PERMIT_TYPE)
 bpShort$WORK_DESCRIPTION <- droplevels(bpShort$WORK_DESCRIPTION)
 
+# need to extract the community area
+bpPts <- SpatialPoints(bpShort[, c("LONGITUDE", "LATITUDE")], 
+                       proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+
+bpPts2 <- over(bpPts, comms)
+bpShort$CAcalc <- bpPts2$area_num_1
+
+# reorder community area levels
+bpShort$CAcalc <- factor(bpShort$CAcalc, levels = c(1:77))
+
+# remove NA community areas 
+# nearly all are 11601 W TOUHY AVE (part of the airport, but technically falls outside the CA boundary)--exclude or assign to 76?
+bpShort <- bpShort %>%
+  filter(!is.na(CAcalc))
+
+bpShort$year <- as.factor(bpShort$year)
+
 # calculate number of permits issued per community area, each quarter of each year
 bpermsCAQY <- bpShort %>% 
-  group_by(Community.Areas, year, quarter, .drop = FALSE) %>% 
+  group_by(CAcalc, year, quarter, .drop = FALSE) %>% 
   summarize(bperm = n())
 
 # sanitation complaint data-----------------------------------------------------
-sanitation <- read.csv("./Data/sanitationComplaints.csv", header = TRUE, 
-                       na.strings = c(""))
 
 # re-categorize sanitation complaints
-sanitation$violType <- plyr::revalue(sanitation$What.is.the.Nature.of.this.Code.Violation.,
+san$violType <- plyr::revalue(san$What.is.the.Nature.of.this.Code.Violation.,
                                      c("Garbage in alley" = "Garbage",
                                        "Garbage in yard" = "Garbage",
                                        "Dumpster not being emptied" = "Garbage",
@@ -84,37 +138,49 @@ sanitation$violType <- plyr::revalue(sanitation$What.is.the.Nature.of.this.Code.
                                        "Graffiti Commercial Vehicle" = "Other",
                                        "Standing water" = "Other",
                                        "Other" = "Other"))
-sanitation$violType <- as.character(sanitation$violType)
-sanitation$violType[is.na(sanitation$violType)] <- "Not provided"
-sanitation$violType <- as.factor(sanitation$violType)
+san$violType <- as.character(san$violType)
+san$violType[is.na(san$violType)] <- "Not provided"
+san$violType <- as.factor(san$violType)
 
 # change formats
-sanitation$Creation.Date <- as.Date(sanitation$Creation.Date, "%m/%d/%Y")
+san$Creation.Date <- as.Date(san$Creation.Date, "%m/%d/%Y")
 
 # add month and year columns for aggregation
-sanitation$month <- format(sanitation$Creation.Date,"%m")
-sanitation$quarter <- as.factor(sanitation$month)
-levels(sanitation$quarter) <- list(Q1 = c("01", "02", "03"), 
+san$month <- format(san$Creation.Date,"%m")
+san$quarter <- as.factor(san$month)
+levels(san$quarter) <- list(Q1 = c("01", "02", "03"), 
                                  Q2 = c("04", "05", "06"),
                                  Q3 = c("07", "08", "09"),
                                  Q4 = c("10", "11", "12"))
-sanitation$year <- format(sanitation$Creation.Date,"%Y")
-
+san$year <- format(san$Creation.Date,"%Y")
 
 # trim the timespan
-sanShort <- sanitation %>%
+sanShort <- san %>%
   filter(Creation.Date >= as.Date("2011-01-01")) %>% 
   filter(Creation.Date <= as.Date("2017-12-31")) %>% 
   filter(!is.na(Community.Area)) %>% 
-  filter(Community.Area > 0) %>% 
   filter(!is.na(Longitude))
 
-sanShort$Community.Area <- as.factor(sanShort$Community.Area)
-sanitation$year <- as.factor(sanitation$year)
+# extract the community area
+sanPts <- SpatialPoints(sanShort[, c("Longitude", "Latitude")], 
+                        proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+sanPts2 <- over(sanPts, comms)
+sanShort$CAcalc <- sanPts2$area_num_1
+
+# reorder community area levels
+sanShort$CAcalc <- factor(sanShort$CAcalc, levels = c(1:77))
+
+# the calculated and given CAs mostly match up, but probably better for consistency to use the calculated ones
+sanShort$CAcalc == sanShort$Community.Area
+
+sanShort <- sanShort %>%
+  filter(!is.na(CAcalc))
+
+sanShort$year <- as.factor(sanShort$year)
 
 # calculate number of different santiation complaints per community area, each quarter of each year
 sancompsCAQY <- sanShort %>% 
-  group_by(Community.Area, year, quarter, violType, .drop = FALSE) %>% 
+  group_by(CAcalc, year, quarter, violType, .drop = FALSE) %>% 
   summarize(nviol = n()) %>% 
   spread(violType, nviol)
 
@@ -122,11 +188,7 @@ names(sancompsCAQY)[4:7] <- c("feces", "garbage", "sanNP", "sanOther")
 
 # food inspections--------------------------------------------------------------
 
-# using locations of inspections as proxy to count numbers of food places in each CA
-
-# COMMUNITY AREAS NOT ACCURATE
-
-food <- read.csv("./Data/foodInspections.csv", header = TRUE, na.strings = c(""))
+# using locations of food inspections as proxy for number of food places in each CA
 
 # change formats
 food$Inspection.Date <- as.Date(food$Inspection.Date, "%m/%d/%Y")
@@ -147,44 +209,72 @@ foodShort <- food %>%
   filter(Results != "Business Not Located") %>% 
   filter(!is.na(Longitude)) 
 
+foodShort$year <- as.factor(foodShort$year)
 
 
-food$year <- as.factor(food$year)
-
-
-
-library(sp)
-library(rgdal)
-CAs <- readOGR("./Data/GIS","chicagoCommAreas")
-pts <- SpatialPoints(foodShort[, c("Longitude", "Latitude")], 
+foodPts <- SpatialPoints(foodShort[, c("Longitude", "Latitude")], 
                      proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+foodPts2 <- over(foodPts, comms)
+foodShort$CAcalc <- foodPts2$area_num_1
 
-pts2 <- over(pts, CAs)
-foodShort$CAcalc <- pts2$area_num_1
+foodShort$CAcalc <- factor(foodShort$CAcalc, levels = c(1:77))
 
+# only aggregating by year, not quarter
 foodCAY <- foodShort %>% 
   filter(!is.na(CAcalc)) %>% 
   group_by(CAcalc, year) %>% 
   distinct(Address, .keep_all = TRUE) %>% 
-  summarize(nfood = n())
+  summarize(food = n())
 
-# socioeconomic data------------------------------------------------------------
+# community areas---------------------------------------------------------------
 
-# https://data.cityofchicago.org/Health-Human-Services/Census-Data-Selected-socioeconomic-indicators-in-C/kn9c-c2s2
-socio <- read.csv("./Data/socioecInd.csv", header = TRUE, na.strings = c(""))
+areas <- as.data.frame(matrix(NA, nrow = 77, ncol = 2))
+names(areas) <- c("Community.Area", "sqm")
+areas$Community.Area <- comms$area_num_1
+areas$sqm <- comms$shape_area
+areas$sqkm <- areas$sqm/1000000
 
 # combine data together---------------------------------------------------------
 
-fullDat <- dplyr::bind_cols(c(ratcompsCAQY, bpermsCAQY[, "bperm"], 
+fullDat <- dplyr::bind_cols(c(ratsCAQY, bpermsCAQY[, "bperm"], 
                        sancompsCAQY[, c("feces", "garbage", "sanOther")]))
 
-fullDat <- left_join(fullDat, socio, by = c("Community.Area" = "Community.Area.Number"))
+fullDat <- left_join(fullDat, foodCAY, by = c("CAcalc" = "CAcalc", 
+                                              "year" = "year"))
+
+socio$Community.Area.Number <- as.factor(socio$Community.Area.Number)
+
+fullDat <- left_join(fullDat, socio, by = c("CAcalc" = "Community.Area.Number"))
+
+fullDat <- left_join(fullDat, pop[, c("GEOG", "TOT_POP")], by = c("COMMUNITY.AREA.NAME" = "GEOG"))
+
+fullDat <- left_join(fullDat, areas[, c("Community.Area", "sqkm")], 
+                     by = c("CAcalc" = "Community.Area"))
+
+fullDat$CAcalc <- as.factor(fullDat$CAcalc)
+
+# remove CA 76 (Ohare airport)
+fullDat <- filter(fullDat, CAcalc != "76")
+
+fullDat$CAcalc <- droplevels(fullDat$CAcalc)
 
 # models------------------------------------------------------------------------
 
-library(fitdistrplus)
+hist(fullDat$ratcomp)
 
+descdist(fullDat$ratcomp, discrete = TRUE)
+# suggests a negative binomial distribution
 
-library(glmmTMB)
-m1 <- glmmTMB(ratcomp ~ bperm + feces + garbage + sanOther + (1|Community.Area), data = fullDat)
+fit.nb <- fitdist(fullDat$ratcomp, "nbinom")
+plot(fit.nb)
+
+m1 <- glmmTMB(ratcomp ~ bperm + feces + garbage + sanOther + food + 
+                PERCENT.HOUSEHOLDS.BELOW.POVERTY + TOT_POP + sqkm + (1|CAcalc), 
+              family = nbinom2, data = fullDat)
 summary(m1)
+plot(allEffects(m1))
+
+# https://stats.idre.ucla.edu/r/dae/negative-binomial-regression/
+# to get incident rate ratios, exponentiate the model coefficients
+# increasing predictor by 1 unit multiplies the mean value of rat complaints by exp(beta)
+exp(m1$fit$par)
