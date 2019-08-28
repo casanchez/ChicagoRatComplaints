@@ -11,7 +11,7 @@ library(effects)
 
 # some are large files, can take a while
 
-#https://data.cityofchicago.org/Service-Requests/311-Service-Requests-Rodent-Baiting-No-Duplicates/uqhs-j723
+# https://data.cityofchicago.org/Service-Requests/311-Service-Requests-Rodent-Baiting-No-Duplicates/uqhs-j723
 rats <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
 
 # https://data.cityofchicago.org/Buildings/Building-Permits/ydr8-5enu
@@ -120,10 +120,17 @@ bpShort <- bpShort %>%
 bpShort$year <- as.factor(bpShort$year)
 
 # calculate number of permits issued per community area, each quarter of each year
-bpermsCAQY <- bpShort %>% 
-  group_by(CAcalc, year, quarter, .drop = FALSE) %>% 
-  summarize(bperm = n())
 
+buildCAQY <- bpShort %>% 
+  filter(PERMIT_TYPE == "PERMIT - NEW CONSTRUCTION") %>% 
+  group_by(CAcalc, year, quarter, .drop = FALSE) %>% 
+  summarize(build = n())
+
+demolCAQY <- bpShort %>% 
+  filter(PERMIT_TYPE == "PERMIT - WRECKING/DEMOLITION") %>% 
+  group_by(CAcalc, year, quarter, .drop = FALSE) %>% 
+  summarize(demol = n())
+                            
 # sanitation complaint data-----------------------------------------------------
 
 # re-categorize sanitation complaints
@@ -182,7 +189,7 @@ sanShort$year <- as.factor(sanShort$year)
 sancompsCAQY <- sanShort %>% 
   group_by(CAcalc, year, quarter, violType, .drop = FALSE) %>% 
   summarize(nviol = n()) %>% 
-  spread(violType, nviol)
+  tidyr::spread(violType, nviol)
 
 names(sancompsCAQY)[4:7] <- c("feces", "garbage", "sanNP", "sanOther")
 
@@ -220,6 +227,7 @@ foodShort$CAcalc <- foodPts2$area_num_1
 foodShort$CAcalc <- factor(foodShort$CAcalc, levels = c(1:77))
 
 # only aggregating by year, not quarter
+# keeping only distinct addresses within a year, to avoid double-counting
 foodCAY <- foodShort %>% 
   filter(!is.na(CAcalc)) %>% 
   group_by(CAcalc, year) %>% 
@@ -236,7 +244,8 @@ areas$sqkm <- areas$sqm/1000000
 
 # combine data together---------------------------------------------------------
 
-fullDat <- dplyr::bind_cols(c(ratsCAQY, bpermsCAQY[, "bperm"], 
+fullDat <- dplyr::bind_cols(c(ratsCAQY, buildCAQY[, "build"], 
+                              demolCAQY[, "demol"], 
                        sancompsCAQY[, c("feces", "garbage", "sanOther")]))
 
 fullDat <- left_join(fullDat, foodCAY, by = c("CAcalc" = "CAcalc", 
@@ -258,6 +267,11 @@ fullDat <- filter(fullDat, CAcalc != "76")
 
 fullDat$CAcalc <- droplevels(fullDat$CAcalc)
 
+fullDat$CAcalc <- factor(fullDat$CAcalc, levels = c(1:75, 77))
+
+# save dataset since it takes a little while to build from scratch
+#write.csv(fullDat, "./Data/ratCompPredsCA.csv")
+
 # models------------------------------------------------------------------------
 
 hist(fullDat$ratcomp)
@@ -268,13 +282,57 @@ descdist(fullDat$ratcomp, discrete = TRUE)
 fit.nb <- fitdist(fullDat$ratcomp, "nbinom")
 plot(fit.nb)
 
-m1 <- glmmTMB(ratcomp ~ bperm + feces + garbage + sanOther + food + 
-                PERCENT.HOUSEHOLDS.BELOW.POVERTY + TOT_POP + sqkm + (1|CAcalc), 
+# including total population (untransformed) throws a warning, so I have sqrt-transformed it
+m1 <- glmmTMB(ratcomp ~ build + demol + feces + garbage + sanOther + food + 
+                PERCENT.HOUSEHOLDS.BELOW.POVERTY + 
+                quarter + sqrt(TOT_POP) + sqkm + (1|CAcalc) + (1|year), 
               family = nbinom2, data = fullDat)
 summary(m1)
 plot(allEffects(m1))
+
+# looks like there could be outliers with feces and garbage
+
+noOut <- fullDat %>% 
+  filter(feces < 25) %>% 
+  filter(garbage < 180)
+
+m2 <- glmmTMB(ratcomp ~ build + demol + feces + garbage + sanOther + food + 
+                PERCENT.HOUSEHOLDS.BELOW.POVERTY + quarter + sqrt(TOT_POP) + 
+                sqkm + (1|CAcalc) + (1|year), 
+              family = nbinom2, data = noOut)
+summary(m2)
+plot(allEffects(m2))
+
+# results are still robust, so that's good
+
+# dropping other sanitation complaints as pred
+m3 <- glmmTMB(ratcomp ~ build + demol + feces + garbage + food + 
+                PERCENT.HOUSEHOLDS.BELOW.POVERTY + 
+                quarter + sqrt(TOT_POP) + sqkm + (1|CAcalc) + (1|year), 
+              family = nbinom2, data = fullDat)
+summary(m3)
+plot(allEffects(m3))
+# doesn't change anything
+
 
 # https://stats.idre.ucla.edu/r/dae/negative-binomial-regression/
 # to get incident rate ratios, exponentiate the model coefficients
 # increasing predictor by 1 unit multiplies the mean value of rat complaints by exp(beta)
 exp(m1$fit$par)
+
+library(DHARMa)
+res <- simulateResiduals(m1)
+plot(res, rank = T)
+
+
+# running original model with different package (a lot slower, and throws warnings)
+# lets us see correlation matrix of predictor variables
+library(lme4)
+m1b <- glmer.nb(ratcomp ~ build + demol + feces + garbage + sanOther + food + 
+                 PERCENT.HOUSEHOLDS.BELOW.POVERTY + quarter + sqrt(TOT_POP) + 
+                 sqkm + (1|CAcalc) + (1|year), data = fullDat)
+summary(m1b)
+vcov(m1b)
+plot(allEffects(m1b))
+
+
