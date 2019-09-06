@@ -33,11 +33,20 @@ descdist(noZero$ratcomp, discrete = TRUE)
 # still highly skewed, so seems appropriate to keep using NB distribution
 # will use truncated negative binomial model
 
+# so that the intercept estimate is meaningful, mean-center continuous variables
+center <- function(x) {
+  scale(x, scale = FALSE)
+}
+
+noZeroCent <- noZero %>% 
+  mutate_at(c(5:12), center)
+
 # all predictors
 # takes about 45 min to run
 start_time <- Sys.time()
 TNB_full <- glmmTMB(ratcomp ~ build + demol + feces + food + garbage + logPop +
-                quarter + (1|year), family = truncated_nbinom2, data = noZero)
+                quarter + (1|year), family = truncated_nbinom2, 
+                data = noZeroCent)
 end_time <- Sys.time()
 end_time - start_time
 beep(sound = 2)
@@ -95,6 +104,9 @@ AICtab(TNB_full, TNB_constr, TNB_foodHarbor, TNB_pop, TNB_quart, TNB_null)
 summary(TNB_full)
 plot(allEffects(TNB_full))
 plot_model(TNB_full)
+
+library(performance)
+check_collinearity(TNB_full)
 
 # could also look at truncated poisson model, just to double check
 start_time <- Sys.time()
