@@ -18,7 +18,6 @@ library(patchwork)
 library(transformr)
 library(png)
 
-
 # functions---------------------------------------------------------------------
 
 # https://bbolker.github.io/mixedmodels-misc/glmmFAQ.html#overdispersion
@@ -33,10 +32,24 @@ overdisp_fun <- function(model) {
 
 # load rat complaint and baiting data-------------------------------------------
 
-complaints <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
+complaints <- read.csv("./Data/ratComplaintsResponses.csv", header = TRUE, 
+                       na.strings = c(""))
 
-complaints <- complaints[, -1]
+# data formatting and cleaning--------------------------------------------------
 
+names(complaints)[1] <- "Creation.Date"
+
+# remove commas
+complaints[, 'Number.of.Premises.Baited'] <- gsub(",","", complaints[, 'Number.of.Premises.Baited']) 
+complaints[, 'Number.of.Premises.with.Garbage'] <- gsub(",","", complaints[, 'Number.of.Premises.with.Garbage']) 
+complaints[, 'Number.of.Premises.with.Rats'] <- gsub(",","", complaints[, 'Number.of.Premises.with.Rats']) 
+
+# change from character to numeric
+complaints$Number.of.Premises.Baited <- as.numeric(complaints$Number.of.Premises.Baited)
+complaints$Number.of.Premises.with.Garbage <- as.numeric(complaints$Number.of.Premises.with.Garbage)
+complaints$Number.of.Premises.with.Rats <- as.numeric(complaints$Number.of.Premises.with.Rats)
+
+# change to factor
 complaints$ZIP.Code <- as.factor(complaints$ZIP.Code)
 complaints$Ward <- as.factor(complaints$Ward)
 complaints$Police.District <- as.factor(complaints$Police.District)
@@ -45,6 +58,20 @@ complaints$Community.Area <- as.factor(complaints$Community.Area)
 # date formatting
 complaints$Creation.Date <- as.Date(complaints$Creation.Date, "%m/%d/%Y") 
 complaints$Completion.Date <- as.Date(complaints$Completion.Date, "%m/%d/%Y") 
+
+# restrict to completed complaints 
+complaints <- complaints %>%
+  filter(Status == "Completed") 
+
+# remove complaints with an unreasonably high number of premises baited
+complaints <- complaints %>%
+  filter(Number.of.Premises.Baited <= 100) 
+
+# exclude NAs
+complaints <- complaints[complete.cases(complaints), ]
+
+# get rid of unneeded columns
+complaints <- complaints[, -c(2, 4, 5, 9, 20:25)]
 
 # calculate time between complaint and response
 complaints$Response.Time <- difftime(complaints$Completion.Date, 

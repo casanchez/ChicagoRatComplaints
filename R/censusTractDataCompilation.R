@@ -10,7 +10,7 @@ library(effects)
 
 # load data---------------------------------------------------------------------
 
-options(digits = 20)
+options(digits = 6)
 
 # some are large files, can take a while
 
@@ -31,9 +31,20 @@ food <- read.csv("./Data/foodInspections.csv", header = TRUE, na.strings = "")
 # https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-Census-Blocks-2010/mfzt-js4n
 blocks <- readOGR("./Data/GIS","chicagoCensusBlocks2010")
 
+# https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-Census-Tracts-2010/5jrd-6zik
+tracts <- readOGR("./Data/GIS","chicagoCensusTracts2010")
+
 # https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Population-by-2010-Census-Block/5yjb-v3mj
 pop <- read.csv("./Data/population2010CB.csv", header = TRUE, na.strings = "")
-pop$CENSUS.BLOCK.FULL <- as.factor(pop$CENSUS.BLOCK.FULL)
+
+# socioeconomic data
+socio1 <- read.csv("./Data/Summary of Census Socioeconomic Data 2011-2012.csv")
+socio2 <- read.csv("./Data/Summary of Census Socioeconomic Data 2012-2013.csv")
+socio3 <- read.csv("./Data/Summary of Census Socioeconomic Data 2013-2014.csv")
+socio4 <- read.csv("./Data/Summary of Census Socioeconomic Data 2014-2015.csv")
+socio5 <- read.csv("./Data/Summary of Census Socioeconomic Data 2015-2016.csv")
+socio6 <- read.csv("./Data/Summary of Census Socioeconomic Data 2016-2017.csv")
+socio7 <- read.csv("./Data/Summary of Census Socioeconomic Data 2017-2018.csv")
 
 # rat complaints data-----------------------------------------------------------
 
@@ -62,25 +73,29 @@ ratShort$year <- as.factor(ratShort$year)
 ratPts <- SpatialPoints(ratShort[, c("Longitude", "Latitude")], 
                         proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 
-# extract census block that each rat complaint belongs to
-ratPts2 <- over(ratPts, blocks)
+# extract census tract that each rat complaint belongs to
+ratPts2 <- over(ratPts, tracts)
 
-# store unique census block id back with rat data
-ratShort$block <- ratPts2$geoid1
+# store unique census tract id back with rat data
+ratShort$tract <- ratPts2$tractce10
 
-# remove points not assigned to a block
+# remove points not assigned to a tract
 ratShort <- ratShort %>%
-  filter(!is.na(block))
+  filter(!is.na(tract))
 
-# calculate number of rat complaints per community area, each quarter of each year
-ratsCBQY <- ratShort %>% 
-  group_by(block, year, quarter, .drop = FALSE) %>% 
+# calculate number of rat complaints per tract, each quarter of each year
+ratsCTQY <- ratShort %>% 
+  group_by(tract, year, quarter, .drop = FALSE) %>% 
   summarize(ratcomp = n())
 
-# calculate number of rat complaints per community area, each quarter
-# ratsCBQ <- ratShort %>% 
-#   group_by(block, quarter, .drop = FALSE) %>% 
-#   summarize(ratcomp = n())
+# looking at rat complaints by quarter of each year (for table/figure)
+ratsQY <- ratShort %>% 
+  group_by(year, quarter, .drop = FALSE) %>% 
+  summarize(ratcomp = n())
+
+ggplot(ratsQY) + 
+  geom_line(aes(x = quarter, y = ratcomp, group = year, color = year), size = 2) +
+  theme_bw()
 
 # building permit data----------------------------------------------------------
 
@@ -109,41 +124,28 @@ bpShort <- bPermits %>%
 bpShort$PERMIT_TYPE <- droplevels(bpShort$PERMIT_TYPE)
 bpShort$WORK_DESCRIPTION <- droplevels(bpShort$WORK_DESCRIPTION)
 
-# need to extract the community area
+# need to extract the census tract
 bpPts <- SpatialPoints(bpShort[, c("LONGITUDE", "LATITUDE")], 
                        proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 
-bpPts2 <- over(bpPts, blocks)
-bpShort$block <- bpPts2$geoid1
+bpPts2 <- over(bpPts, tracts)
+bpShort$tract <- bpPts2$tractce10
 
-# remove points not assigned to a block
+# remove points not assigned to a tract
 bpShort <- bpShort %>%
-  filter(!is.na(block))
+  filter(!is.na(tract))
 
 bpShort$year <- as.factor(bpShort$year)
 
-# calculate number of permits issued per community area, each quarter of each year
+# calculate number of permits issued per tract, each quarter of each year
 
-buildCBQY <- bpShort %>% 
-  filter(PERMIT_TYPE == "PERMIT - NEW CONSTRUCTION") %>% 
-  group_by(block, year, quarter, .drop = FALSE) %>% 
-  summarize(build = n())
+buildCTQY <- bpShort %>% 
+  #filter(PERMIT_TYPE == "PERMIT - NEW CONSTRUCTION") %>% 
+  group_by(tract, year, quarter, PERMIT_TYPE, .drop = FALSE) %>% 
+  summarize(bPerm = n()) %>% 
+  tidyr::spread(PERMIT_TYPE, bPerm)
 
-demolCBQY <- bpShort %>% 
-  filter(PERMIT_TYPE == "PERMIT - WRECKING/DEMOLITION") %>% 
-  group_by(block, year, quarter, .drop = FALSE) %>% 
-  summarize(demol = n())
-
-# collapsing over years
-# buildCBQ <- bpShort %>% 
-#   filter(PERMIT_TYPE == "PERMIT - NEW CONSTRUCTION") %>% 
-#   group_by(block, quarter, .drop = FALSE) %>% 
-#   summarize(build = n())
-# 
-# demolCBQ <- bpShort %>% 
-#   filter(PERMIT_TYPE == "PERMIT - WRECKING/DEMOLITION") %>% 
-#   group_by(block, quarter, .drop = FALSE) %>% 
-#   summarize(demol = n())
+names(buildCTQY)[4:5] <- c("construction", "demolition")
 
 # sanitation complaint data-----------------------------------------------------
 
@@ -180,32 +182,24 @@ sanShort <- san %>%
   filter(Creation.Date <= as.Date("2017-12-31")) %>% 
   filter(!is.na(Longitude))
 
-# extract the census block
+# extract the census tract
 sanPts <- SpatialPoints(sanShort[, c("Longitude", "Latitude")], 
                         proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
-sanPts2 <- over(sanPts, blocks)
-sanShort$block <- sanPts2$geoid1
+sanPts2 <- over(sanPts, tracts)
+sanShort$tract <- sanPts2$tractce10
 
 sanShort <- sanShort %>%
-  filter(!is.na(block))
+  filter(!is.na(tract))
 
 sanShort$year <- as.factor(sanShort$year)
 
-# calculate number of different sanitation complaints per community area, each quarter of each year
-sancompsCBQY <- sanShort %>% 
-  group_by(block, year, quarter, violType, .drop = FALSE) %>% 
+# calculate number of different sanitation complaints per tract, each quarter of each year
+sancompsCTQY <- sanShort %>% 
+  group_by(tract, year, quarter, violType, .drop = FALSE) %>% 
   summarize(nviol = n()) %>% 
   tidyr::spread(violType, nviol)
 
-names(sancompsCBQY)[4:7] <- c("feces", "garbage", "sanNP", "sanOther")
-
-# collapsing over years
-# sancompsCBQ <- sanShort %>% 
-#   group_by(block, quarter, violType, .drop = FALSE) %>% 
-#   summarize(nviol = n()) %>% 
-#   tidyr::spread(violType, nviol)
-# 
-# names(sancompsCBQ)[3:6] <- c("feces", "garbage", "sanNP", "sanOther")
+names(sancompsCTQY)[4:7] <- c("feces", "garbage", "sanNP", "sanOther")
 
 # food inspections--------------------------------------------------------------
 
@@ -223,66 +217,155 @@ levels(food$quarter) <- list(Q1 = c("01", "02", "03"),
                              Q4 = c("10", "11", "12"))
 food$year <- format(food$Inspection.Date,"%Y")
 
-# could consider only keeping restaurants, but for now just keep broad
+# only keeping restaurants
 foodShort <- food %>% 
+  filter(Facility.Type == "Restaurant") %>% 
   filter(Inspection.Date >= as.Date("2011-01-01")) %>% 
   filter(Inspection.Date <= as.Date("2017-12-31")) %>% 
   filter(Inspection.Type %!in% c("O.B.", "Out of Business", "OUT OF BUSINESS",
                                  "out ofbusiness")) %>%
   filter(Results != "Business Not Located") %>% 
   filter(!is.na(Longitude))                             
-                              
-foodShort$year <- as.factor(foodShort$year)
 
+foodShort$year <- as.factor(foodShort$year)
 
 foodPts <- SpatialPoints(foodShort[, c("Longitude", "Latitude")], 
                          proj4string = CRS("+proj=longlat +ellps=WGS84 +no_defs"))
-foodPts2 <- over(foodPts, blocks)
-foodShort$block <- foodPts2$geoid1
+foodPts2 <- over(foodPts, tracts)
+foodShort$tract <- foodPts2$tractce10
 
 # only aggregating by year, not quarter
 # keeping only distinct addresses within a year, to avoid double-counting
-foodCBY <- foodShort %>% 
-  filter(!is.na(block)) %>% 
-  group_by(block, year, .drop = FALSE) %>%
+foodCTY <- foodShort %>% 
+  filter(!is.na(tract)) %>% 
+  group_by(tract, year, .drop = FALSE) %>%
   distinct(Address, .keep_all = TRUE) %>% 
   summarize(food = n())
 
-# community areas---------------------------------------------------------------
+# socioeconomic data------------------------------------------------------------
 
-# areas <- as.data.frame(matrix(NA, nrow = 77, ncol = 2))
-# names(areas) <- c("Community.Area", "sqm")
-# areas$Community.Area <- comms$area_num_1
-# areas$sqm <- comms$shape_area
-# areas$sqkm <- areas$sqm/1000000
+# have to deal with the first dataset differently, has different formatting
+socio1$year <- 2011
+
+# also has different dimensions than the other datasets...
+# could suggest different numbering of census tracts?
+
+socio1 <- socio1 %>% 
+  dplyr::select(TRACT, year, Estimated.Median.Family.Income, 
+                Percent.of.Owner.Occupied.Homes)
+
+names(socio1) <- c("tract", "year", "medIncome", "percentOcc")
+
+# get rid of some special characters
+socio1$medIncome <- gsub("[,$]", "", socio1$medIncome)
+socio1$medIncome <- as.numeric(gsub(" ", "", socio1$medIncome))
+
+socio1$percentOcc <- gsub("\\%", "", socio1$percentOcc)
+socio1$percentOcc <- as.numeric(socio1$percentOcc)
+
+socio1$tract <- format(socio1$tract, width = 6)
+socio1$tract <- gsub(" ", "0", socio1$tract)
+
+
+# now deal with rest of the data
+socio2$year <- 2012
+socio3$year <- 2013
+socio4$year <- 2014
+socio5$year <- 2015
+socio6$year <- 2016
+socio7$year <- 2017
+
+allSocio <- rbind(socio2[, c("TRACT", "year", "Estimated.Median.Family.Income",
+                             "Percent.of.Owner.Occupied.Homes")],
+                  socio3[, c("TRACT", "year", "Estimated.Median.Family.Income",
+                             "Percent.of.Owner.Occupied.Homes")],
+                  socio4[, c("TRACT", "year", "Estimated.Median.Family.Income",
+                             "Percent.of.Owner.Occupied.Homes")],
+                  socio5[, c("TRACT", "year", "Estimated.Median.Family.Income",
+                             "Percent.of.Owner.Occupied.Homes")],
+                  socio6[, c("TRACT", "year", "Estimated.Median.Family.Income",
+                             "Percent.of.Owner.Occupied.Homes")],
+                  socio7[, c("TRACT", "year", "Estimated.Median.Family.Income",
+                             "Percent.of.Owner.Occupied.Homes")])
+
+allSocio <- allSocio %>% 
+  dplyr::select(TRACT, year, Estimated.Median.Family.Income, 
+                Percent.of.Owner.Occupied.Homes)
+
+names(allSocio) <- c("tract", "year", "medIncome", "percentOcc")
+
+# get rid of some special characters
+allSocio$medIncome <- gsub("[,$]", "", allSocio$medIncome)
+allSocio$medIncome <- as.numeric(gsub(" ", "", allSocio$medIncome))
+
+allSocio$percentOcc <- gsub("\\%", "", allSocio$percentOcc)
+allSocio$percentOcc <- as.numeric(allSocio$percentOcc)
+
+allSocio$tract <- format(allSocio$tract, width = 6)
+allSocio$tract <- gsub("\\.", "", allSocio$tract)
+allSocio$tract <- gsub(" ", "0", allSocio$tract)
+
+allSocio$year <- as.factor(allSocio$year)
+
+allSocio <- rbind(socio1, allSocio)
+
+# census tracts-----------------------------------------------------------------
+
+# calculate area of each tract
+#https://gis.stackexchange.com/questions/200420/calculate-area-for-each-polygon-in-r
+tracts$area_sqkm <- area(tracts) / 1000000
+
+tractAreas <- as.data.frame(tracts$tractce10)
+tractAreas$area <- tracts$area_sqkm
+names(tractAreas)[1] <- "tract"
+
+# calculate population of each tract (from 2010 census block data)
+# want to add the populations for all the census blocks in a tract together
+pop$CENSUS.BLOCK.FULL <- as.factor(pop$CENSUS.BLOCK.FULL)
+pop$tract <- substr(pop$CENSUS.BLOCK.FULL, 6, 11)
+
+tractPop <- pop %>% 
+  group_by(tract) %>% 
+  summarise(pop = sum(TOTAL.POPULATION))
 
 # combine data together---------------------------------------------------------
 
-fullDat <- dplyr::bind_cols(c(ratsCBQY, 
-                              buildCBQY[, "build"], demolCBQY[, "demol"], 
-                              sancompsCBQY[, c("feces", "garbage", "sanOther")]))
+# use bind_cols to just bind because these all are in same order and same rows
+fullDat <- dplyr::bind_cols(c(ratsCTQY, 
+                              buildCTQY[, c("construction", "demolition")], 
+                              sancompsCTQY[, c("feces", "garbage", "sanOther")]))
 
-fullDat <- left_join(fullDat, foodCBY, 
-                     by = c("block" = "block", "year" = "year"))
+# add in food data (by year)
+fullDat <- left_join(fullDat, foodCTY, 
+                     by = c("tract" = "tract", "year" = "year"))
 
-fullDat <- left_join(fullDat, pop[, c("CENSUS.BLOCK.FULL", "TOTAL.POPULATION")],
-                     by = c("block" = "CENSUS.BLOCK.FULL"))
+# add socioeconomic data (by tract and year)
+fullDat <- left_join(fullDat, allSocio, 
+                     by = c("tract" = "tract", "year" = "year"))
 
-fullDat$logPop <- log(fullDat$TOTAL.POPULATION + 1)
+# add human population
+fullDat <- left_join(fullDat, tractPop, by = "tract")
+
+# add tract area (sqkm)
+fullDat <- left_join(fullDat, tractAreas, by = "tract")
 
 # remove any NA values
+# there are two tracts (980000 and 980100) that are part of Ohare and Midway
+# no socioeconomic data for them
 fullDat <- fullDat[complete.cases(fullDat), ]
 
-# save dataset since it takes a little while to build from scratch
-#write.csv(fullDat, "./Data/ratCompPredsCB.csv")
+# one tract in 2011 has 0 population...let's remove
+fullDat <- fullDat %>% 
+  filter(pop > 0)
+
+# save dataset to use for models
+#write.csv(fullDat, "./Data/ratCompPredsCT.csv")
 
 # plotting rat complaints and predictors (in 2017)------------------------------
 library(ggplot2)
 library(sf)
 
-
 CA_sf <- st_read("./Data/GIS/chicagoCommAreas.shp")
-
 
 # rat complaints
 ggplot() + 
