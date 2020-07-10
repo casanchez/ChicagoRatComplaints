@@ -6,11 +6,11 @@ library(beepr)
 library(corrplot)
 library(fitdistrplus)
 library(glmmTMB)
-library(sjPlot)
 library(tidyverse)
 
 # load data---------------------------------------------------------------------
 rc <- read.csv("./Data/ratCompPredsCT.csv", header = TRUE) %>% 
+#rc <- read.csv("./Data/ratCompPredsCT_baited.csv", header = TRUE) %>% 
   mutate_at(vars(year), as.factor) %>% 
   mutate(logPD = log(popDens)) %>%  # since there's one really high value
   dplyr::select(-c(totalPop, area, popDens))
@@ -23,10 +23,8 @@ rc$tract <- gsub(" ", "0", rc$tract)
 
 # examine correlations between predictors
 corrplot(cor(rc[, c(5:16)]), method = "number")
-
 # percGradDegree and medHouseholdIncome have correlation of 0.7
-# percCrowding and percOwnerOcc have correlation of 0.75
-# might need to drop some variables
+# will examine VIFs in model
 
 hist(rc$ratcomp)
 descdist(rc$ratcomp, discrete = TRUE)
@@ -45,133 +43,172 @@ rcScaled <- rc %>%
 Sys.time()
 globalZINB <- glmmTMB(ratcomp ~ quarter + bPerm + dogFeces + garbage + food +
                         percGradDegr + medHouseholdInc + percVacantHU +
-                        percOwnerOcc + percBuilt1970on + percCrowding +
-                        percUnder5y + logPD +
-                        (1|year) + (1|tract), ziformula = ~logPD, 
-                      family = nbinom1, data = rcScaled)
+                        percOwnerOcc + percBuilt1970on + percCrowded +
+                        percUnder5y + logPD + (1|year) + (1|tract), 
+                      ziformula = ~logPD, family = nbinom1, data = rcScaled)
 Sys.time()
 beep(sound=2)
-
 
 Sys.time()
 # this one takes about 11 min
 globalZINB2 <- glmmTMB(ratcomp ~ quarter + bPerm + dogFeces + garbage + food +
                          percGradDegr + medHouseholdInc + percVacantHU +
-                         percOwnerOcc + percBuilt1970on + percCrowding +
-                         percUnder5y + logPD +
-                         (1|year) + (1|tract), ziformula = ~logPD, 
-                       family = nbinom2, data = rcScaled)
+                         percOwnerOcc + percBuilt1970on + percCrowded +
+                         percUnder5y + logPD + (1|year) + (1|tract),
+                       ziformula = ~logPD, family = nbinom2, data = rcScaled)
 Sys.time()
 beep(sound=2)
 
 AICtab(globalZINB, globalZINB2)
 #             dAIC    df
 # globalZINB2     0.0 21
-# globalZINB    847.7 21
+# globalZINB    835.7 21
 
 # okay, so nbinom2 is best
 
 # check multicollinearity
 library(performance)
 check_collinearity(globalZINB2, component = "count")
-# highest VIF is 1.21
+# all VIFs < 4
 
 
 # now compare global model against other candidate models
 
 # harborage: building age and vacant units
-m1 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + quarter + 
-                (1|year) + (1|tract),
-              ziformula = ~logPD, family = nbinom2, data = rcScaled)
+m1 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + quarter + (1|year) + 
+                (1|tract), ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
 # attractants: dog feces, garbage, restaurants
-m2 <- glmmTMB(ratcomp ~ dogFeces + garbage + food + quarter + 
-                (1|year) + (1|tract),
-              ziformula = ~logPD, family = nbinom2, data = rcScaled)
+m2 <- glmmTMB(ratcomp ~ dogFeces + garbage + food + quarter + (1|year) + 
+                (1|tract), ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
 # disturbance: construction/demolition permits
-m3 <- glmmTMB(ratcomp ~ bPerm + quarter +
-                (1|year) + (1|tract),
+m3 <- glmmTMB(ratcomp ~ bPerm + quarter + (1|year) + (1|tract),
               ziformula = ~logPD, family = nbinom2, data = rcScaled)
   
 # human density: population density, overcrowding  
-m4 <- glmmTMB(ratcomp ~ logPD + percCrowding + quarter +
-                (1|year) + (1|tract),
+m4 <- glmmTMB(ratcomp ~ logPD + percCrowded + quarter + (1|year) + (1|tract),
               ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
 # socioeconomics: household income, owner occupied
-m5 <- glmmTMB(ratcomp ~ medHouseholdInc + percOwnerOcc + quarter + 
-                (1|year) + (1|tract),
+m5 <- glmmTMB(ratcomp ~ medHouseholdInc + percOwnerOcc + quarter + (1|year) + 
+                (1|tract), ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
+# demographics: % graduate degree, % under 5
+m6 <- glmmTMB(ratcomp ~ percGradDegr + percUnder5y + quarter + (1|year) + 
+                (1|tract), ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
+
+# harborage + attractants
+m7 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + dogFeces + garbage +
+                food + quarter + (1|year) + (1|tract), ziformula = ~logPD, 
+              family = nbinom2, data = rcScaled)
+
+# harborage + disturbance
+m8 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + bPerm + quarter + 
+                (1|year) + (1|tract), ziformula = ~logPD, family = nbinom2, 
+              data = rcScaled)
+
+# harborage + density
+m9 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + logPD + percCrowded +
+                quarter + (1|year) + (1|tract), ziformula = ~logPD, 
+              family = nbinom2, data = rcScaled) 
+
+# harborage + socioecon
+m10 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + medHouseholdInc +
+                 percOwnerOcc + quarter + (1|year) + (1|tract),
+               ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
+# harborage + demographics
+m11 <- glmmTMB(ratcomp ~ percBuilt1970on + percVacantHU + percGradDegr + 
+                 percUnder5y + quarter + (1|year) + (1|tract), 
+               ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
+# attractants + disturbance
+m12 <- glmmTMB(ratcomp ~ dogFeces + garbage + food + bPerm + quarter + 
+                 (1|year) + (1|tract), ziformula = ~logPD, family = nbinom2, 
+               data = rcScaled)
+
+# attractants + density
+m13 <- glmmTMB(ratcomp ~ dogFeces + garbage + food + logPD + percCrowded + 
+                quarter + (1|year) + (1|tract), ziformula = ~logPD, 
+              family = nbinom2, data = rcScaled)
+
+# attractants + socioecon
+m14 <- glmmTMB(ratcomp ~ dogFeces + garbage + food + medHouseholdInc + 
+                 percOwnerOcc + quarter + (1|year) + (1|tract), 
+               ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
+# attractants + demographics
+m15 <- glmmTMB(ratcomp ~ dogFeces + garbage + food + percGradDegr + percUnder5y +
+                quarter + (1|year) + (1|tract), ziformula = ~logPD, 
+              family = nbinom2, data = rcScaled)
+
+# disturbance + density
+m16 <- glmmTMB(ratcomp ~ bPerm + logPD + percCrowded + quarter + (1|year) + 
+                 (1|tract), ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
+# disturbance + socioecon
+m17 <- glmmTMB(ratcomp ~ bPerm + medHouseholdInc + percOwnerOcc + quarter + 
+                 (1|year) + (1|tract), ziformula = ~logPD, family = nbinom2, 
+               data = rcScaled)
+
+# disturbance + demographics
+m18 <- glmmTMB(ratcomp ~ bPerm + percGradDegr + percUnder5y + quarter + 
+                 (1|year) + (1|tract), ziformula = ~logPD, family = nbinom2, 
+               data = rcScaled)
+
+# density + socioecon
+m19 <- glmmTMB(ratcomp ~ logPD + percCrowded + medHouseholdInc + percOwnerOcc +
+                 quarter + (1|year) + (1|tract), ziformula = ~logPD, 
+               family = nbinom2, data = rcScaled)
+
+# density + demographics
+m20 <- glmmTMB(ratcomp ~ logPD + percCrowded + percGradDegr + percOwnerOcc +
+                quarter + (1|year) + (1|tract), ziformula = ~logPD, 
+              family = nbinom2, data = rcScaled)
+
+# socioecon + demographics
+m21 <- glmmTMB(ratcomp ~ medHouseholdInc + percOwnerOcc + percGradDegr +
+                percOwnerOcc + quarter + (1|year) + (1|tract), 
               ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
-# demographics: household income, owner occupied
-m6 <- glmmTMB(ratcomp ~ percGradDegr + percUnder5y + quarter + 
-                  (1|year) + (1|tract),
-                ziformula = ~logPD, family = nbinom2, data = rcScaled)
-
 # null model
-m7 <- glmmTMB(ratcomp ~ 1 + (1|year) + (1|tract),
+m22 <- glmmTMB(ratcomp ~ 1 + (1|year) + (1|tract),
                      ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
-AICtab(globalZINB2, m1, m2, m3, m4, m5, m6, m7)
+
+AICtab(globalZINB2, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14,
+       m15, m16, m17, m18, m19, m20, m21, m22)
 
 #             dAIC   df
-# globalZINB2    0.0 17
-# m5           352.7 9 
-# m2          4978.4 9 
-# m4          5460.2 8 
-# m3          5488.6 7 
-# m6          5515.3 6 
-# m1              NA 8 
-
-modelOutput <- summary(globalZINB2)
-
-# plot incident rate ratios
-plot_model(globalZINB2, show.values = TRUE, value.offset = 0.4, vline.color = "gray") +
-  theme_bw() +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
-
-exp(modelOutput$coefficients$cond[,1])
-
-
-# plot marginal effects
-plot_model(globalZINB2, type = "pred", terms = c("percentOcc", "quarter")) + 
-  theme_bw() +
-  xlab("% owner-occupied homes") +
-  ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+# globalZINB2    0.0 21
+# m7            34.3 14
+# m13           51.9 14
+# m12           64.9 13
+# m14           74.6 14
+# m2            75.7 12
+# m15           76.3 14
+# m9           286.5 13
+# m8           296.6 12
+# m16          297.1 12
+# m20          307.2 13
+# m19          308.3 13
+# m10          311.1 13
+# m4           311.8 11
+# m1           314.5 11
+# m11          315.5 13
+# m17          328.3 12
+# m3           329.4 10
+# m18          331.1 12
+# m5           343.8 11
+# m21          345.3 12
+# m6           347.2 11
+# m22         5595.1 6 
 
 
-plot_model(globalZINB2, type = "eff", terms = "demolition", show.data = TRUE)
+bestmod <- globalZINB2
 
-plot_model(globalZINB2, type = "eff", terms = "dogFeces", show.data = TRUE) + 
-  theme_bw() +
-  xlab("Dog feces complaints") +
-  ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+#saveRDS(bestmod, "./ModelOutput/bestmodel.rds")
 
-plot_model(globalZINB2, type = "eff", terms = "food", show.data = TRUE) + 
-  theme_bw() +
-  xlab("Food establishments") +
-  ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
-
-plot_model(globalZINB2, type = "eff", terms = "garbage", show.data = TRUE) + 
-  theme_bw() +
-  xlab("Garbage complaints") +
-  ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
-
-plot_model(globalZINB2, type = "eff", terms = "logPD", show.data = TRUE)
-
-plot_model(globalZINB2, type = "eff", terms = "quarter", show.data = TRUE)
+#saveRDS(bestmod, "./ModelOutput/bestmodel_baited.rds")

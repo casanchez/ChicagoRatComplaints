@@ -1,7 +1,8 @@
-
+# assembling all predictor data for analysis
 
 # load cleaned datasets
 ratsCTQY <- read.csv("./Data/ratsCTQY.csv")
+#ratsCTQY <- read.csv("./Data/ratsCTQYbaited.csv")
 buildCTQY <- read.csv("./Data/buildCTQY.csv")
 sancompsCTQY <- read.csv("./Data/sancompsCTQY.csv")
 foodCTY <- read.csv("./Data/foodCTY.csv")
@@ -35,8 +36,9 @@ fullDat$tract <- format(fullDat$tract, width = 6)
 fullDat$tract <- gsub(" ", "0", fullDat$tract)
 fullDat <- left_join(fullDat, tractAreas, by = "tract")
 
-# remove two tracts (980000 and 980100) that are part of Ohare and Midway
+# remove two tracts (980000 and 980100) that are part of O'Hare and Midway
 # no socioeconomic data for them
+# NOTE: What about tract 770602? Right next to O'Hare
 final <- fullDat %>% 
   filter(!(tract %in% c("980000", "980100"))) %>% 
   filter(totalPop > 0) %>%  # remove any tract with no people
@@ -47,3 +49,5 @@ final <- final[complete.cases(final), ]
 
 # save dataset to use for models
 #write.csv(final, "./Data/ratCompPredsCT.csv", row.names = FALSE)
+
+#write.csv(final, "./Data/ratCompPredsCT_baited.csv", row.names = FALSE)

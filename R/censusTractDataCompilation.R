@@ -67,6 +67,17 @@ ratsCTQY <- ratShort %>%
 
 #write.csv(ratsCTQY, "./Data/ratsCTQY.csv", row.names = FALSE)
 
+# do the same but for only Most.Recent.Action = "Inspected and baited"
+# calculate number of rat complaints per tract, each quarter of each year
+ratsCTQYbaited <- ratShort %>% 
+  filter(!is.na(tract)) %>%  # remove points not assigned to a tract
+  filter(Most.Recent.Action == "Inspected and baited") %>% 
+  group_by(tract, year, quarter, .drop = FALSE) %>% 
+  summarize(ratcomp = n())
+
+#write.csv(ratsCTQYbaited, "./Data/ratsCTQYbaited.csv", row.names = FALSE)
+
+
 # looking at rat complaints by quarter of each year (for table/figure)
 # ratsQY <- ratShort %>%
 #   filter(!is.na(tract)) %>%

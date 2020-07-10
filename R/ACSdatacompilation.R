@@ -63,7 +63,7 @@ myfunc <- function(file){
                  stringsAsFactors = FALSE) %>% 
     dplyr::slice(-1)
   
-  if(grepl("2011|2012|2013|2014", file, fixed = TRUE)){
+  if(grepl("2011|2012|2013|2014", file)){
     df <- df %>% 
       dplyr::select(GEO_ID, DP04_0003PE, DP04_0017PE, DP04_0018PE, DP04_0019PE,
                     DP04_0020PE, DP04_0021PE, DP04_0045PE, DP04_0077PE, 
@@ -71,7 +71,7 @@ myfunc <- function(file){
       mutate_at(vars(DP04_0003PE:DP04_0078PE), as.numeric) %>% 
       mutate(percBuilt1970on = DP04_0017PE + DP04_0018PE + DP04_0019PE +
                DP04_0020PE + DP04_0021PE,
-             percCrowding = DP04_0077PE + DP04_0078PE) %>% 
+             percCrowded = DP04_0077PE + DP04_0078PE) %>% 
       rename(percVacantHU = DP04_0003PE, percOwnerOcc = DP04_0045PE)
   }
   
@@ -83,14 +83,14 @@ myfunc <- function(file){
       mutate_at(vars(DP04_0003PE:DP04_0079PE), as.numeric) %>% 
       mutate(percBuilt1970on = DP04_0017PE + DP04_0018PE + DP04_0019PE +
                DP04_0020PE + DP04_0021PE + DP04_0022PE,
-             percCrowding = DP04_0078PE + DP04_0079PE) %>% 
+             percCrowded = DP04_0078PE + DP04_0079PE) %>% 
       rename(percVacantHU = DP04_0003PE, percOwnerOcc = DP04_0046PE)
   }
   
   df <- df %>%  
     mutate(tract = substr(GEO_ID, 15, 20)) %>% 
     mutate(year = substr(file, 8, 11)) %>% 
-    dplyr::select(percVacantHU, percOwnerOcc, percBuilt1970on, percCrowding,
+    dplyr::select(percVacantHU, percOwnerOcc, percBuilt1970on, percCrowded,
                   tract, year)
 }
 
