@@ -1,3 +1,5 @@
+library(rgdal)
+
 # assembling all predictor data for analysis
 
 # load cleaned datasets
@@ -38,7 +40,6 @@ fullDat <- left_join(fullDat, tractAreas, by = "tract")
 
 # remove two tracts (980000 and 980100) that are part of O'Hare and Midway
 # no socioeconomic data for them
-# NOTE: What about tract 770602? Right next to O'Hare
 final <- fullDat %>% 
   filter(!(tract %in% c("980000", "980100"))) %>% 
   filter(totalPop > 0) %>%  # remove any tract with no people

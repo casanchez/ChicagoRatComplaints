@@ -21,36 +21,18 @@ setwd("./Data/ACS")
 # note that some of the category names change over the years
 # which slightly changes which variables are selected
 
-# year 2011
+# year 2011-2014
 # DP04_0003PE = Percent!!HOUSING OCCUPANCY!!Vacant housing units
-# DP04_0017PE = Percent!!YEAR STRUCTURE BUILT!!Built 2005 or later
-# DP04_0018PE = Percent!!YEAR STRUCTURE BUILT!!Built 2000 to 2004
-# DP04_0019PE = Percent!!YEAR STRUCTURE BUILT!!Built 1990 to 1999
-# DP04_0020PE = Percent!!YEAR STRUCTURE BUILT!!Built 1980 to 1989
-# DP04_0021PE = Percent!!YEAR STRUCTURE BUILT!!Built 1970 to 1979
-# DP04_0045PE = Percent!!HOUSING TENURE!!Owner-occupied
-# DP04_0077PE = Percent!!OCCUPANTS PER ROOM!!1.01 to 1.50
-# DP04_0078PE = Percent!!OCCUPANTS PER ROOM!!1.51 or more
- 
-# year 2012, 2013, 2014
-# DP04_0003PE = Percent!!HOUSING OCCUPANCY!!Vacant housing units
-# DP04_0017PE = Percent!!YEAR STRUCTURE BUILT!!Built 2010 or later
-# DP04_0018PE = Percent!!YEAR STRUCTURE BUILT!!Built 2000 to 2009
-# DP04_0019PE = Percent!!YEAR STRUCTURE BUILT!!Built 1990 to 1999
-# DP04_0020PE = Percent!!YEAR STRUCTURE BUILT!!Built 1980 to 1989
-# DP04_0021PE = Percent!!YEAR STRUCTURE BUILT!!Built 1970 to 1979
+# DP04_0024PE = Percent!!YEAR STRUCTURE BUILT!!Built 1940 to 1949
+# DP04_0025PE = Percent!!YEAR STRUCTURE BUILT!!Built 1939 or earlier
 # DP04_0045PE = Percent!!HOUSING TENURE!!Owner-occupied
 # DP04_0077PE = Percent!!OCCUPANTS PER ROOM!!1.01 to 1.50
 # DP04_0078PE = Percent!!OCCUPANTS PER ROOM!!1.51 or more
 
 # year 2015, 2016, 2017
 # DP04_0003PE = Percent!!HOUSING OCCUPANCY!!Total housing units!!Vacant housing units
-# DP04_0017PE = Percent!!YEAR STRUCTURE BUILT!!Total housing units!!Built 2014 or later
-# DP04_0018PE = Percent!!YEAR STRUCTURE BUILT!!Total housing units!!Built 2010 to 2013
-# DP04_0019PE = Percent!!YEAR STRUCTURE BUILT!!Total housing units!!Built 2000 to 2009
-# DP04_0020PE = Percent!!YEAR STRUCTURE BUILT!!Total housing units!!Built 1990 to 1999
-# DP04_0021PE = Percent!!YEAR STRUCTURE BUILT!!Total housing units!!Built 1980 to 1989
-# DP04_0022PE = Percent!!YEAR STRUCTURE BUILT!!Total housing units!!Built 1970 to 1979
+# DP04_0025PE = Percent!!YEAR STRUCTURE BUILT!!Built 1940 to 1949
+# DP04_0026PE = Percent!!YEAR STRUCTURE BUILT!!Built 1939 or earlier
 # DP04_0046PE = Percent!!HOUSING TENURE!!Occupied housing units!!Owner-occupied
 # DP04_0078PE = Percent!!OCCUPANTS PER ROOM!!Occupied housing units!!1.01 to 1.50
 # DP04_0079PE = Percent!!OCCUPANTS PER ROOM!!Occupied housing units!!1.51 or more
@@ -65,32 +47,28 @@ myfunc <- function(file){
   
   if(grepl("2011|2012|2013|2014", file)){
     df <- df %>% 
-      dplyr::select(GEO_ID, DP04_0003PE, DP04_0017PE, DP04_0018PE, DP04_0019PE,
-                    DP04_0020PE, DP04_0021PE, DP04_0045PE, DP04_0077PE, 
-                    DP04_0078PE) %>% 
+      dplyr::select(GEO_ID, DP04_0003PE, DP04_0024PE, DP04_0025PE, DP04_0045PE,
+                    DP04_0077PE, DP04_0078PE) %>% 
       mutate_at(vars(DP04_0003PE:DP04_0078PE), as.numeric) %>% 
-      mutate(percBuilt1970on = DP04_0017PE + DP04_0018PE + DP04_0019PE +
-               DP04_0020PE + DP04_0021PE,
-             percCrowded = DP04_0077PE + DP04_0078PE) %>% 
-      rename(percVacantHU = DP04_0003PE, percOwnerOcc = DP04_0045PE)
+      mutate(pBuiltPre1950 = DP04_0024PE + DP04_0025PE,
+             pCrowded = DP04_0077PE + DP04_0078PE) %>% 
+      rename(pVacantHU = DP04_0003PE, pOwnerOcc = DP04_0045PE)
   }
   
   else{
     df <- df %>% 
-      dplyr::select(GEO_ID, DP04_0003PE, DP04_0017PE, DP04_0018PE, DP04_0019PE,
-                    DP04_0020PE, DP04_0021PE, DP04_0022PE, DP04_0046PE,
+      dplyr::select(GEO_ID, DP04_0003PE, DP04_0025PE, DP04_0026PE, DP04_0046PE,
                     DP04_0078PE, DP04_0079PE) %>% 
       mutate_at(vars(DP04_0003PE:DP04_0079PE), as.numeric) %>% 
-      mutate(percBuilt1970on = DP04_0017PE + DP04_0018PE + DP04_0019PE +
-               DP04_0020PE + DP04_0021PE + DP04_0022PE,
-             percCrowded = DP04_0078PE + DP04_0079PE) %>% 
-      rename(percVacantHU = DP04_0003PE, percOwnerOcc = DP04_0046PE)
+      mutate(pBuiltPre1950 = DP04_0025PE + DP04_0026PE,
+             pCrowded = DP04_0078PE + DP04_0079PE) %>% 
+      rename(pVacantHU = DP04_0003PE, pOwnerOcc = DP04_0046PE)
   }
   
   df <- df %>%  
     mutate(tract = substr(GEO_ID, 15, 20)) %>% 
     mutate(year = substr(file, 8, 11)) %>% 
-    dplyr::select(percVacantHU, percOwnerOcc, percBuilt1970on, percCrowded,
+    dplyr::select(pVacantHU, pOwnerOcc, pBuiltPre1950, pCrowded,
                   tract, year)
 }
 
@@ -120,20 +98,20 @@ myfunc <- function(file){
     df <- df %>% 
       dplyr::select(GEO_ID, DP05_0001E, DP05_0005PE) %>% 
       mutate_at(vars(DP05_0001E, DP05_0005PE), as.numeric) %>% 
-      rename(totalPop = DP05_0001E, percUnder5y = DP05_0005PE)
+      rename(totalPop = DP05_0001E, pUnder5y = DP05_0005PE)
   }
   
   else{
     df <- df %>% 
       dplyr::select(GEO_ID, DP05_0001E, DP05_0004PE) %>% 
       mutate_at(vars(DP05_0001E, DP05_0004PE), as.numeric) %>% 
-      rename(totalPop = DP05_0001E, percUnder5y = DP05_0004PE)
+      rename(totalPop = DP05_0001E, pUnder5y = DP05_0004PE)
   }
   
   df <- df %>% 
     mutate(tract = substr(GEO_ID, 15, 20)) %>% 
     mutate(year = substr(file, 8, 11)) %>% 
-    dplyr::select(totalPop, percUnder5y, tract, year)
+    dplyr::select(totalPop, pUnder5y, tract, year)
 }
 
 DP05 <- lapply(temp, myfunc) %>% 
@@ -156,10 +134,10 @@ myfunc <- function(file){
     dplyr::slice(-1) %>% 
     dplyr::select(GEO_ID, DP02_0065PE) %>% 
     mutate_at(vars(DP02_0065PE), as.numeric) %>% 
-    rename(percGradDegr = DP02_0065PE) %>% 
+    rename(pGradDegr = DP02_0065PE) %>% 
     mutate(tract = substr(GEO_ID, 15, 20)) %>% 
     mutate(year = substr(file, 8, 11)) %>% 
-    dplyr::select(percGradDegr, tract, year)
+    dplyr::select(pGradDegr, tract, year)
 }
 
 DP02 <- lapply(temp, myfunc) %>% 

@@ -7,8 +7,6 @@ library(gridExtra)
 bestmod <- readRDS("./ModelOutput/bestmodel.rds")
 #bestmod <- readRDS("./ModelOutput/bestmodel_baited.rds")
 
-# quarterly rat complaints and quarterly preds----------------------------------
-
 rc <- read.csv("./Data/ratCompPredsCT.csv", header = TRUE) %>% 
   #rc <- read.csv("./Data/ratCompPredsCT_baited.csv", header = TRUE) %>% 
   mutate_at(vars(year), as.factor) %>% 
@@ -19,11 +17,23 @@ rc <- read.csv("./Data/ratCompPredsCT.csv", header = TRUE) %>%
 rc$tract <- format(rc$tract, width = 6)
 rc$tract <- gsub(" ", "0", rc$tract)
 
+
+# center and scale the predictors
+cs <- function(x) {
+  scale(x, center = TRUE, scale = TRUE)
+}
+rcScaled <- rc %>% 
+  mutate_at(c(5:16), cs)
+
+# quarterly rat complaints and quarterly preds----------------------------------
+
 # plotting rat complaints by quarter and year
 rc %>% 
   group_by(year, quarter) %>% 
   summarise(ratcomp = sum(ratcomp)) %>% 
   ggplot(., aes(x = quarter, y = ratcomp, group = year, color = year)) +
+  scale_color_brewer("Blues") +
+  guides(color = guide_legend(title = "Year")) +
   geom_line(size = 2) +
   geom_point(color = "black") +
   theme_bw() -> p1
@@ -33,6 +43,8 @@ rc %>%
   group_by(year, quarter) %>% 
   summarise(garbage = sum(garbage)) %>% 
   ggplot(., aes(x = quarter, y = garbage, group = year, color = year)) +
+  scale_color_brewer("Blues") +
+  guides(color = guide_legend(title = "Year")) +
   geom_line(size = 2) +
   geom_point(color = "black") +
   theme_bw() -> p2
@@ -42,6 +54,8 @@ rc %>%
   group_by(year, quarter) %>% 
   summarise(dogFeces = sum(dogFeces)) %>% 
   ggplot(., aes(x = quarter, y = dogFeces, group = year, color = year)) +
+  scale_color_brewer("Blues") +
+  guides(color = guide_legend(title = "Year")) +
   geom_line(size = 2) +
   geom_point(color = "black") +
   theme_bw() -> p3
@@ -51,12 +65,13 @@ rc %>%
   group_by(year, quarter) %>% 
   summarise(bPerm = sum(bPerm)) %>% 
   ggplot(., aes(x = quarter, y = bPerm, group = year, color = year)) +
+  scale_color_brewer("Blues") +
+  guides(color = guide_legend(title = "Year")) +
   geom_line(size = 2) +
   geom_point(color = "black") +
   theme_bw() -> p4
 
 grid.arrange(p1, p2, p3, p4, nrow = 2)
-
 
 # plot incident rate ratios-----------------------------------------------------
 
@@ -71,13 +86,20 @@ plot_model(bestmod, show.values = TRUE, value.offset = 0.4,
 
 # exponentiated estimates
 modelOutput <- summary(bestmod)
-exp(modelOutput$coefficients$cond[,1])
+exp(modelOutput$coefficients$cond[, "Estimate"]) # IRR
+exp(modelOutput$coefficients$cond[, "Estimate"] - 1.96*modelOutput$coefficients$cond[,"Std. Error"])  # lower CI
+exp(modelOutput$coefficients$cond[, "Estimate"] + 1.96*modelOutput$coefficients$cond[,"Std. Error"])  # upper CI
 
+# plot RE coefs
+plot_model(bestmod, type = "re")
+
+test <- ranef(bestmod)[2]
 
 # marginal effects--------------------------------------------------------------
 
 # population density
-p1 <- plot_model(bestmod, type = "eff", terms = c("logPD")) + 
+p1 <- plot_model(bestmod, type = "eff", terms = c("logPD", "quarter"), 
+                 colors = "BrBG", line.size = 2) + 
   theme_bw() +
   xlab("Human population density") +
   ylab("Rat complaints") +
@@ -86,7 +108,8 @@ p1 <- plot_model(bestmod, type = "eff", terms = c("logPD")) +
         axis.text = element_text(size = 16, color = "black"))
 
 # restaurants
-p2 <- plot_model(bestmod, type = "eff", terms = c("food")) + 
+p2 <- plot_model(bestmod, type = "eff", terms = c("food", "quarter"),
+                 colors = "BrBG", line.size = 2) + 
   theme_bw() +
   xlab("# of restaurants") +
   ylab("Rat complaints") +
@@ -95,16 +118,18 @@ p2 <- plot_model(bestmod, type = "eff", terms = c("food")) +
         axis.text = element_text(size = 16, color = "black"))
 
 # building age
-p3 <- plot_model(bestmod, type = "eff", terms = c("percBuilt1970on")) + 
+p3 <- plot_model(bestmod, type = "eff", terms = c("pBuiltPre1950", "quarter"),
+                 colors = "BrBG", line.size = 2) + 
   theme_bw() +
-  xlab("% structures built since 1970") +
+  xlab("% structures built before 1950") +
   ylab("Rat complaints") +
   theme(plot.title = element_blank(),
         axis.title = element_text(size = 18),
         axis.text = element_text(size = 16, color = "black"))
 
 # garbage complaints
-p4 <- plot_model(bestmod, type = "eff", terms = "garbage") + 
+p4 <- plot_model(bestmod, type = "eff", terms = c("garbage", "quarter"),
+                 colors = "BrBG", line.size = 2) + 
   theme_bw() +
   xlab("Garbage complaints") +
   ylab("Rat complaints") +
@@ -115,52 +140,67 @@ p4 <- plot_model(bestmod, type = "eff", terms = "garbage") +
 grid.arrange(p1, p2, p3, p4, nrow = 2)
 
 # owner occupied
-plot_model(bestmod, type = "eff", terms = c("percOwnerOcc")) + 
-  theme_bw() +
-  xlab("% owner-occupied homes") +
-  ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+# plot_model(bestmod, type = "eff", terms = c("pOwnerOcc")) + 
+#   theme_bw() +
+#   xlab("% owner-occupied homes") +
+#   ylab("Rat complaints") +
+#   theme(plot.title = element_blank(),
+#         axis.title = element_text(size = 18),
+#         axis.text = element_text(size = 16, color = "black"))
 
-# seasonal predictions map------------------------------------------------------
+# predicted # of rat complaints by quarter--------------------------------------
 
-# pick all quarterly predictors to plot their relationship w/ rat complaints
-
+# calculate avg rat complaints in a tract each quarter
 qpred <- rc %>% 
   group_by(tract, quarter) %>% 
-  dplyr::summarise(garbage = mean(garbage),
-                   dogFeces = mean(dogFeces),
-                   bPerm = mean(bPerm),
-                   logPD = mean(logPD))
+  dplyr::summarise_at(vars(-year), mean)
 
 # center and scale predictors
+# have to apply the same transformation as was done to the original data
+# ie need the mean and sd of the rc dataset
 qpred$garbage <- (qpred$garbage - mean(rc$garbage)) / sd(rc$garbage)
 qpred$dogFeces <- (qpred$dogFeces - mean(rc$dogFeces)) / sd(rc$dogFeces)
 qpred$bPerm <- (qpred$bPerm - mean(rc$bPerm)) / sd(rc$bPerm)
+qpred$food <- (qpred$food - mean(rc$food)) / sd(rc$food)
+qpred$pGradDegr <- (qpred$pGradDegr - mean(rc$pGradDegr)) / sd(rc$pGradDegr)
+qpred$medHouseholdInc <- (qpred$medHouseholdInc - mean(rc$medHouseholdInc)) / sd(rc$medHouseholdInc)
+qpred$pVacantHU <- (qpred$pVacantHU - mean(rc$pVacantHU)) / sd(rc$pVacantHU)
+qpred$pOwnerOcc <- (qpred$pOwnerOcc - mean(rc$pOwnerOcc)) / sd(rc$pOwnerOcc)
+qpred$pBuiltPre1950 <- (qpred$pBuiltPre1950 - mean(rc$pBuiltPre1950)) / sd(rc$pBuiltPre1950)
+qpred$pCrowded <- (qpred$pCrowded - mean(rc$pCrowded)) / sd(rc$pCrowded)
+qpred$pUnder5y <- (qpred$pUnder5y - mean(rc$pUnder5y)) / sd(rc$pUnder5y)
 qpred$logPD <- (qpred$logPD - mean(rc$logPD)) / sd(rc$logPD)
 
-# extract fixed effects estimates
+
+# This part is based on Brooks et al. 2017
+# "glmmTMB balances speed and flexibility among packages for zero-inflated
+# generalized linear mixed modeling"
+# extract fixed effects estimates for the conditional model
 beta.cond <- fixef(bestmod)$cond
 
-# only pick out the estimates we need
-beta.cond2 <- beta.cond[c("(Intercept)", "garbage", "dogFeces", "bPerm",
-                          "quarterQ2", "quarterQ3", "quarterQ4")] 
-
 # create empty matrix to hold predictor data
-X.cond <- matrix(0, ncol = 7, nrow = nrow(qpred))
+# important that the order of the columns is the same as beta.cond
+X.cond <- matrix(0, ncol = 16, nrow = nrow(qpred))
 
-X.cond[, 1] <- 1
-X.cond[, 2] <- qpred$garbage
-X.cond[, 3] <- qpred$dogFeces
-X.cond[, 4] <- qpred$bPerm
-# dummy variables for quarter
-X.cond[which(qpred$quarter == "Q2"), 5] <- 1
-X.cond[which(qpred$quarter == "Q3"), 6] <- 1
-X.cond[which(qpred$quarter == "Q4"), 7] <- 1
+X.cond[, 1] <- 1 # intercept
+X.cond[which(qpred$quarter == "Q2"), 2] <- 1 # dummy variables for quarter
+X.cond[which(qpred$quarter == "Q3"), 3] <- 1 # dummy variables for quarter
+X.cond[which(qpred$quarter == "Q4"), 4] <- 1 # dummy variables for quarter
+X.cond[, 5] <- qpred$bPerm
+X.cond[, 6] <- qpred$dogFeces
+X.cond[, 7] <- qpred$garbage
+X.cond[, 8] <- qpred$food
+X.cond[, 9] <- qpred$pGradDegr
+X.cond[, 10] <- qpred$medHouseholdInc
+X.cond[, 11] <- qpred$pVacantHU
+X.cond[, 12] <- qpred$pOwnerOcc
+X.cond[, 13] <- qpred$pBuiltPre1950
+X.cond[, 14] <- qpred$pCrowded
+X.cond[, 15] <- qpred$pUnder5y
+X.cond[, 16] <- qpred$logPD
 
 # make predictions for conditional model
-pred.cond <- X.cond %*% beta.cond2
+pred.cond <- X.cond %*% beta.cond
 
 # now we want to do the bit for the zero-inflation model
 # get fixed effect estimates for zero-inflation model
@@ -174,25 +214,14 @@ pred.zi <- cbind(1, qpred$logPD) %*% beta.zi
 # so we transform to the response scale and multiply
 pred.ucount <- exp(pred.cond)*(1-plogis(pred.zi))
 
-# add predicted rat complaints back to the garbage, tract, and quarter dataset
+# add predicted rat complaints back to the dataset
 qpred$preds <- pred.ucount
 
-# plotting map of predicted rat complaints--------------------------------------
+# plotting quarterly maps of predicted rat complaints---------------------------
 
 tracts_sf <- st_read("./Data/GIS/chicagoCensusTracts2010.shp")
 
-# want a separate map for each quarter
-Q1data <- left_join(tracts_sf, 
-                    qpred %>% 
-                      filter(quarter == "Q1") %>% 
-                      dplyr::select(tract, preds),
-                    by = c("tractce10" = "tract"))
-
-Q2data <- left_join(tracts_sf, 
-                    qpred %>% 
-                      filter(quarter == "Q2") %>% 
-                      dplyr::select(tract, preds),
-                    by = c("tractce10" = "tract"))
+# want only quarter 3
 
 Q3data <- left_join(tracts_sf, 
                     qpred %>% 
@@ -200,156 +229,27 @@ Q3data <- left_join(tracts_sf,
                       dplyr::select(tract, preds),
                     by = c("tractce10" = "tract"))
 
-Q4data <- left_join(tracts_sf, 
-                    qpred %>% 
-                      filter(quarter == "Q4") %>% 
-                      dplyr::select(tract, preds),
-                    by = c("tractce10" = "tract"))
-
 # rat complaints
 mytheme <- theme_bw() +
   theme(legend.position = c(0.18, 0.2))
 
-
-p1 <- ggplot() + 
-  mytheme +
-  geom_sf(data = Q1data, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(limits = c(0, max(qpred$preds)),
-                       name = "Predicted\nrat complaints") +
-  coord_sf()
-
-p2 <- ggplot() + 
-  mytheme +
-  geom_sf(data = Q2data, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(limits = c(0, max(qpred$preds)),
-                       name = "Predicted\nrat complaints") +
-  coord_sf()
-
-p3 <- ggplot() + 
+# plotted on a log scale
+ggplot() + 
   mytheme +
   geom_sf(data = Q3data, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(limits = c(0, max(qpred$preds)),
+  scale_fill_viridis_c(trans = "log10",
                        name = "Predicted\nrat complaints") +
   coord_sf()
 
-p4 <- ggplot() + 
-  mytheme +
-  geom_sf(data = Q4data, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(limits = c(0, max(qpred$preds)),
-                       name = "Predicted\nrat complaints") +
-  coord_sf()
 
-# png("./Figures/quarterlyPlots.png", width = 10, height = 10, units = "in", 
-#     res = 600)
-grid.arrange(p1, p2, p3, p4, nrow = 2)
-# dev.off()
-
-# year predictions map----------------------------------------------------------
-
-# pick all yearly predictors to plot their relationship w/ rat complaints
-
-ypred <- rc %>% 
-  group_by(tract) %>% 
-  dplyr::summarise(food = mean(food),
-                   percGradDegr = mean(percGradDegr),
-                   medHouseholdInc = mean(medHouseholdInc),
-                   percVacantHU = mean(percVacantHU),
-                   percOwnerOcc = mean(percOwnerOcc),
-                   percBuilt1970on = mean(percBuilt1970on),
-                   percCrowded = mean(percCrowded),
-                   percUnder5y = mean(percUnder5y),
-                   logPD = mean(logPD))
-
-# center and scale predictors
-ypred$food <- (ypred$food - mean(rc$food)) / sd(rc$food)
-ypred$percGradDegr <- (ypred$percGradDegr - mean(rc$percGradDegr)) / sd(rc$percGradDegr)
-ypred$medHouseholdInc <- (ypred$medHouseholdInc - mean(rc$medHouseholdInc)) / sd(rc$medHouseholdInc)
-ypred$percVacantHU <- (ypred$percVacantHU - mean(rc$percVacantHU)) / sd(rc$percVacantHU)
-ypred$percOwnerOcc <- (ypred$percOwnerOcc - mean(rc$percOwnerOcc)) / sd(rc$percOwnerOcc)
-ypred$percBuilt1970on <- (ypred$percBuilt1970on - mean(rc$percBuilt1970on)) / sd(rc$percBuilt1970on)
-ypred$percCrowded <- (ypred$percCrowded - mean(rc$percCrowded)) / sd(rc$percCrowded)
-ypred$percUnder5y <- (ypred$percUnder5y - mean(rc$percUnder5y)) / sd(rc$percUnder5y)
-ypred$logPD <- (ypred$logPD - mean(rc$logPD)) / sd(rc$logPD)
-
-# extract fixed effects estimates
-beta.cond <- fixef(bestmod)$cond
-
-# only pick out the estimates we need
-beta.cond2 <- beta.cond[c("(Intercept)", "food", "percGradDegr",
-                          "medHouseholdInc", "percVacantHU", "percOwnerOcc",
-                          "percBuilt1970on", "percCrowded", "percUnder5y",
-                          "logPD")] 
-
-# create empty matrix to hold predictor data
-X.cond <- matrix(0, ncol = 10, nrow = nrow(ypred))
-
-X.cond[, 1] <- 1
-X.cond[, 2] <- ypred$food
-X.cond[, 3] <- ypred$percGradDegr
-X.cond[, 4] <- ypred$medHouseholdInc
-X.cond[, 5] <- ypred$percVacantHU
-X.cond[, 6] <- ypred$percOwnerOcc
-X.cond[, 7] <- ypred$percBuilt1970on
-X.cond[, 8] <- ypred$percCrowded
-X.cond[, 9] <- ypred$percUnder5y
-X.cond[, 10] <- ypred$logPD
-
-# make predictions for conditional model
-pred.cond <- X.cond %*% beta.cond2
-
-# now we want to do the bit for the zero-inflation model
-# get fixed effect estimates for zero-inflation model
-beta.zi <- fixef(bestmod)$zi
-
-# make predictions
-pred.zi <- cbind(1, ypred$logPD) %*% beta.zi
-
-# we have generated estimates on the link scale
-# logit(prob) and log(cond), not the predictions themselves
-# so we transform to the response scale and multiply
-pred.ucount <- exp(pred.cond)*(1-plogis(pred.zi))
-
-# add predicted rat complaints back to the garbage, tract, and quarter dataset
-ypred$preds <- pred.ucount
-
-# plotting map of predicted rat complaints--------------------------------------
-
-tracts_sf <- st_read("./Data/GIS/chicagoCensusTracts2010.shp")
-
-# want a separate map for each quarter
-ydata <- left_join(tracts_sf, 
-                   ypred %>% 
-                     dplyr::select(tract, preds),
-                   by = c("tractce10" = "tract"))
-
-# rat complaints
-mytheme <- theme_bw() +
-  theme(legend.position = c(0.18, 0.2))
-
+# plot with percentiles instead
+Fn <- ecdf(Q3data$preds)
 
 ggplot() + 
   mytheme +
-  geom_sf(data = ydata, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(limits = c(0, max(ypred$preds)),
-                       name = "Predicted\nrat complaints") +
+  geom_sf(data = Q3data, aes(fill = Fn(preds)), color = "black") +
+  scale_fill_viridis_c(name = "Relative predicted\nrat complaints") +
   coord_sf()
-
-# something weird going on with tract 839100
-# this tract has 3x the restaurants as the tract w/next highest
-# is this true characteristic?? doesn't seem like data processing error
-
-# plot with artificial maximum
-ggplot() + 
-  mytheme +
-  geom_sf(data = ydata, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(limits = c(0, 9),
-                       name = "Predicted\nrat complaints") +
-  coord_sf()
-
-# png("./Figures/yearPlot.png", width = 10, height = 10, units = "in", 
-#     res = 600)
-# grid.arrange(p1, p2, p3, p4, nrow = 2)
-# dev.off()
 
 # plotting map of random effects------------------------------------------------
 tracts_sf <- st_read("./Data/GIS/chicagoCensusTracts2010.shp")
@@ -369,4 +269,47 @@ ggplot() +
                         midpoint = 0) +
   coord_sf()
 
+#test <- left_join(Q3data, tractEff, by = c("tractce10" = "tract"))
+
+#############################
+tractEff <- ranef(bestmod)$cond$tract
+tractEff2 <- tractEff[,1]
+tractEff2 <- rep(tractEff2, each = 4)
+
+# could also be written as exp(pred.cond)*exp(tractEff2)*(1-plogis(pred.zi))
+predwRE <- exp(pred.cond + tractEff2)*(1-plogis(pred.zi))
+
+# add predicted rat complaints back to the dataset
+qpred$predwRE <- predwRE
+
+
+tracts_sf <- st_read("./Data/GIS/chicagoCensusTracts2010.shp")
+
+# want only quarter 3
+
+Q3data <- left_join(tracts_sf, 
+                    qpred %>% 
+                      filter(quarter == "Q3") %>% 
+                      dplyr::select(tract, preds, predwRE),
+                    by = c("tractce10" = "tract"))
+
+# rat complaints
+mytheme <- theme_bw() +
+  theme(legend.position = c(0.18, 0.2))
+
+ggplot() + 
+  mytheme +
+  geom_sf(data = Q3data, aes(fill = preds - predwRE), color = "black") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                       midpoint = 0) +
+  coord_sf()
+
+# plot with percentiles instead
+Fn <- ecdf(Q3data$preds)
+
+ggplot() + 
+  mytheme +
+  geom_sf(data = Q3data, aes(fill = Fn(preds)), color = "black") +
+  scale_fill_viridis_c(name = "Relative predicted\nrat complaints") +
+  coord_sf()
 
