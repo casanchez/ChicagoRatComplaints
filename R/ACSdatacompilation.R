@@ -11,8 +11,7 @@ setwd("./Data/ACS")
 # Product:
 #   2018: ACS 5-Year Estimates Data Profiles 
 
-#https://data.census.gov/cedsci/table?q=DP04%3A%20SELECTED%20HOUSING%20CHARACTERISTICS&tid=ACSDP5Y2018.DP04&hidePreview=true&vintage=2018 
-
+#https://data.census.gov/cedsci/table?q=DP04%3A%20SELECTED%20HOUSING%20CHARACTERISTICS&g=0500000US17031.140000&tid=ACSDP5Y2018.DP04&hidePreview=true
 # NOTE: by choosing % buildings built 1970 onward, 
 # this changes the span of years depending on the year
 # ie in 2011, 1970-2011 is 41 years
@@ -83,7 +82,7 @@ DP04 <- lapply(temp, myfunc) %>%
 #   2018: ACS 5-Year Estimates Data Profiles 
 
 
-#https://data.census.gov/cedsci/table?d=ACS%205-Year%20Estimates%20Data%20Profiles&tid=ACSDP5Y2018.DP05&hidePreview=true
+#https://data.census.gov/cedsci/table?g=0500000US17031.140000&d=ACS%205-Year%20Estimates%20Data%20Profiles&tid=ACSDP5Y2018.DP05&hidePreview=true
 
 # in 2017 the % estimate for under 5 years is marked as DP05_0005PE
 
@@ -124,7 +123,7 @@ DP05 <- lapply(temp, myfunc) %>%
 # Product:
 #   2018: ACS 5-Year Estimates Data Profiles 
 
-# https://data.census.gov/cedsci/table?d=ACS%205-Year%20Estimates%20Data%20Profiles&g=0400000US17.140000&tid=ACSDP5Y2018.DP02&hidePreview=true
+# https://data.census.gov/cedsci/table?g=0400000US17.140000&d=ACS%205-Year%20Estimates%20Data%20Profiles&tid=ACSDP5Y2018.DP02&hidePreview=true
 
 temp <- list.files(pattern = "DP02_data_with")
 
@@ -149,7 +148,7 @@ DP02 <- lapply(temp, myfunc) %>%
 # Product:
 #   2018: ACS 5-Year Estimates Data Profiles 
 
-#https://data.census.gov/cedsci/table?d=ACS%205-Year%20Estimates%20Data%20Profiles&tid=ACSDP5Y2018.DP03&hidePreview=true&vintage=2018
+#https://data.census.gov/cedsci/table?g=0500000US17031.140000&d=ACS%205-Year%20Estimates%20Data%20Profiles&tid=ACSDP5Y2018.DP03&hidePreview=true
 
 temp <- list.files(pattern = "DP03_data_with")
 

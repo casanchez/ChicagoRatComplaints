@@ -7,7 +7,7 @@ library(gridExtra)
 bestmod <- readRDS("./ModelOutput/bestmodel.rds")
 #bestmod <- readRDS("./ModelOutput/bestmodel_baited.rds")
 
-rc <- read.csv("./Data/ratCompPredsCT.csv", header = TRUE) %>% 
+rc <- read.csv("./DataCleaned/ratCompPredsCT.csv", header = TRUE) %>% 
   #rc <- read.csv("./Data/ratCompPredsCT_baited.csv", header = TRUE) %>% 
   mutate_at(vars(year), as.factor) %>% 
   mutate(logPD = log(popDens)) %>%  # since there's one really high value
@@ -25,17 +25,22 @@ cs <- function(x) {
 rcScaled <- rc %>% 
   mutate_at(c(5:16), cs)
 
-# quarterly rat complaints and quarterly preds----------------------------------
+# FIGURE 1: quarterly rat complaints and quarterly preds------------------------
+
+myblues <- RColorBrewer::brewer.pal(9, "Blues")[3:9]
+
+#tiff("./Figures/Fig1.tiff", height = 5, width = 7, units = "in", res = 600)
 
 # plotting rat complaints by quarter and year
 rc %>% 
   group_by(year, quarter) %>% 
   summarise(ratcomp = sum(ratcomp)) %>% 
   ggplot(., aes(x = quarter, y = ratcomp, group = year, color = year)) +
-  scale_color_brewer("Blues") +
+  scale_color_manual(values = myblues) +
   guides(color = guide_legend(title = "Year")) +
-  geom_line(size = 2) +
+  geom_line(size = 1.5) +
   geom_point(color = "black") +
+  ylab("Rat complaints") + 
   theme_bw() -> p1
 
 # garbage complaints
@@ -43,10 +48,11 @@ rc %>%
   group_by(year, quarter) %>% 
   summarise(garbage = sum(garbage)) %>% 
   ggplot(., aes(x = quarter, y = garbage, group = year, color = year)) +
-  scale_color_brewer("Blues") +
+  scale_color_manual(values = myblues) +
   guides(color = guide_legend(title = "Year")) +
-  geom_line(size = 2) +
+  geom_line(size = 1.5) +
   geom_point(color = "black") +
+  ylab("Garbage complaints") + 
   theme_bw() -> p2
 
 # dog feces complaints
@@ -54,10 +60,11 @@ rc %>%
   group_by(year, quarter) %>% 
   summarise(dogFeces = sum(dogFeces)) %>% 
   ggplot(., aes(x = quarter, y = dogFeces, group = year, color = year)) +
-  scale_color_brewer("Blues") +
+  scale_color_manual(values = myblues) +
   guides(color = guide_legend(title = "Year")) +
-  geom_line(size = 2) +
+  geom_line(size = 1.5) +
   geom_point(color = "black") +
+  ylab("Dog feces complaints") + 
   theme_bw() -> p3
 
 # construction/demolition permits
@@ -65,13 +72,15 @@ rc %>%
   group_by(year, quarter) %>% 
   summarise(bPerm = sum(bPerm)) %>% 
   ggplot(., aes(x = quarter, y = bPerm, group = year, color = year)) +
-  scale_color_brewer("Blues") +
+  scale_color_manual(values = myblues) +
   guides(color = guide_legend(title = "Year")) +
-  geom_line(size = 2) +
+  geom_line(size = 1.5) +
   geom_point(color = "black") +
+  ylab("Construction and\n demolition permits issued") + 
   theme_bw() -> p4
 
 grid.arrange(p1, p2, p3, p4, nrow = 2)
+#dev.off()
 
 # plot incident rate ratios-----------------------------------------------------
 
@@ -95,49 +104,48 @@ plot_model(bestmod, type = "re")
 
 test <- ranef(bestmod)[2]
 
-# marginal effects--------------------------------------------------------------
+# FIGURE 2: marginal effects----------------------------------------------------
+
+#tiff("./Figures/Fig2.tiff", height = 5, width = 7, units = "in", res = 600)
+
+mytheme <- theme_bw() +
+  theme(plot.title = element_blank(),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12, color = "black"))
 
 # population density
 p1 <- plot_model(bestmod, type = "eff", terms = c("logPD", "quarter"), 
                  colors = "BrBG", line.size = 2) + 
-  theme_bw() +
   xlab("Human population density") +
   ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+  mytheme
+
 
 # restaurants
 p2 <- plot_model(bestmod, type = "eff", terms = c("food", "quarter"),
                  colors = "BrBG", line.size = 2) + 
-  theme_bw() +
   xlab("# of restaurants") +
   ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+  mytheme
 
 # building age
 p3 <- plot_model(bestmod, type = "eff", terms = c("pBuiltPre1950", "quarter"),
                  colors = "BrBG", line.size = 2) + 
-  theme_bw() +
   xlab("% structures built before 1950") +
   ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+  mytheme
 
 # garbage complaints
 p4 <- plot_model(bestmod, type = "eff", terms = c("garbage", "quarter"),
                  colors = "BrBG", line.size = 2) + 
-  theme_bw() +
   xlab("Garbage complaints") +
   ylab("Rat complaints") +
-  theme(plot.title = element_blank(),
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 16, color = "black"))
+  mytheme
+
 
 grid.arrange(p1, p2, p3, p4, nrow = 2)
+
+#dev.off()
 
 # owner occupied
 # plot_model(bestmod, type = "eff", terms = c("pOwnerOcc")) + 
@@ -217,9 +225,9 @@ pred.ucount <- exp(pred.cond)*(1-plogis(pred.zi))
 # add predicted rat complaints back to the dataset
 qpred$preds <- pred.ucount
 
-# plotting quarterly maps of predicted rat complaints---------------------------
+# Fig 3:plotting quarterly maps of predicted rat complaints---------------------
 
-tracts_sf <- st_read("./Data/GIS/chicagoCensusTracts2010.shp")
+tracts_sf <- st_read("./DataRaw/GIS/chicagoCensusTracts2010.shp")
 
 # want only quarter 3
 
@@ -229,18 +237,20 @@ Q3data <- left_join(tracts_sf,
                       dplyr::select(tract, preds),
                     by = c("tractce10" = "tract"))
 
+
+#tiff("./Figures/Fig3.tiff", height = 8, width = 6, units = "in", res = 600)
+
 # rat complaints
 mytheme <- theme_bw() +
   theme(legend.position = c(0.18, 0.2))
 
 # plotted on a log scale
-ggplot() + 
-  mytheme +
-  geom_sf(data = Q3data, aes(fill = preds), color = "black") +
-  scale_fill_viridis_c(trans = "log10",
-                       name = "Predicted\nrat complaints") +
-  coord_sf()
-
+# ggplot() + 
+#   mytheme +
+#   geom_sf(data = Q3data, aes(fill = preds), color = "black") +
+#   scale_fill_viridis_c(trans = "log10",
+#                        name = "Predicted\nrat complaints") +
+#   coord_sf()
 
 # plot with percentiles instead
 Fn <- ecdf(Q3data$preds)
@@ -251,8 +261,10 @@ ggplot() +
   scale_fill_viridis_c(name = "Relative predicted\nrat complaints") +
   coord_sf()
 
-# plotting map of random effects------------------------------------------------
-tracts_sf <- st_read("./Data/GIS/chicagoCensusTracts2010.shp")
+dev.off()
+
+# Fig. S1: plotting map of random effects---------------------------------------
+tracts_sf <- st_read("./DataRaw/GIS/chicagoCensusTracts2010.shp")
 
 tractEff <- ranef(bestmod)$cond$tract
 tractEff$tract <- rownames(tractEff)
@@ -262,12 +274,16 @@ names(tractEff)[1] <- "effect"
 
 tracts_sf <- left_join(tracts_sf, tractEff, by = c("tractce10" = "tract"))
 
+#tiff("./Figures/FigS1.tiff", height = 8, width = 6, units = "in", res = 600)
+
 ggplot() + 
   mytheme +
   geom_sf(data = tracts_sf, aes(fill = effect), color = "black") +
   scale_fill_gradient2(low = "blue", mid = "white", high = "red",
                         midpoint = 0) +
   coord_sf()
+
+#dev.off()
 
 #test <- left_join(Q3data, tractEff, by = c("tractce10" = "tract"))
 

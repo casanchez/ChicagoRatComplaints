@@ -9,7 +9,7 @@ library(glmmTMB)
 library(tidyverse)
 
 # load data---------------------------------------------------------------------
-rc <- read.csv("./Data/ratCompPredsCT.csv", header = TRUE) %>% 
+rc <- read.csv("./DataCleaned/ratCompPredsCT.csv", header = TRUE) %>% 
 #rc <- read.csv("./Data/ratCompPredsCT_baited.csv", header = TRUE) %>% 
   mutate_at(vars(year), as.factor) %>% 
   mutate(logPD = log(popDens)) %>%  # since there's one really high value
@@ -173,13 +173,17 @@ m21 <- glmmTMB(ratcomp ~ medHouseholdInc + pGradDegr + pOwnerOcc +
                 pUnder5y + quarter + (1|year) + (1|tract), 
               ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
+# quarter only
+m22 <- glmmTMB(ratcomp ~ quarter + (1|year) + (1|tract),
+               ziformula = ~logPD, family = nbinom2, data = rcScaled)
+
 # null model
-m22 <- glmmTMB(ratcomp ~ 1 + (1|year) + (1|tract),
+m23 <- glmmTMB(ratcomp ~ 1 + (1|year) + (1|tract),
                      ziformula = ~logPD, family = nbinom2, data = rcScaled)
 
 
 AICtab(globalZINB2, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14,
-       m15, m16, m17, m18, m19, m20, m21, m22)
+       m15, m16, m17, m18, m19, m20, m21, m22, m23)
 
 #             dAIC   df
 # globalZINB2    0.0 21
@@ -204,7 +208,8 @@ AICtab(globalZINB2, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14,
 # m6           362.0 11
 # m5           362.2 11
 # m21          362.9 13
-# m22         5612.8 6 
+# m22          363.1 9
+# m23         5612.8 6 
 
 bestmod <- globalZINB2
 
