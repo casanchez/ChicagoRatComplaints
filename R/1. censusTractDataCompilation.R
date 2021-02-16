@@ -6,6 +6,10 @@
 # It generates the number of rat complaints in each Chicago census tract 
 # per quarter, per year, from 2011-2017
 
+# The raw data are not uploaded to Github because they are publicly available
+# Links are provided here and in the manuscript
+# But the cleaned datasets are in the DataCleaned folder
+
 # load packages-----------------------------------------------------------------
 library(dplyr)
 library(sp)
