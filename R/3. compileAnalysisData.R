@@ -1,15 +1,20 @@
+# Code to accompany Sanchez et al. 2021. Social and environmental correlates
+# of rat complaints in Chicago. Journal of Urban Ecology. doi: 10.1093/jue/juab006
+
+# This script assembles all of the data from the first two scripts
+# so that it is ready for analysis
+
+rm(list = ls())
+
 library(rgdal)
 
-# assembling all predictor data for analysis
-
-# load cleaned datasets
-ratsCTQY <- read.csv("./Data/ratsCTQY.csv")
-#ratsCTQY <- read.csv("./Data/ratsCTQYbaited.csv")
-buildCTQY <- read.csv("./Data/buildCTQY.csv")
-sancompsCTQY <- read.csv("./Data/sancompsCTQY.csv")
-foodCTY <- read.csv("./Data/foodCTY.csv")
-allACS <- read.csv("./Data/allACS.csv")
-tracts <- readOGR("./Data/GIS", "chicagoCensusTracts2010")
+# load cleaned datasets---------------------------------------------------------
+ratsCTQY <- read.csv("./DataCleaned/ratsCTQY.csv")
+buildCTQY <- read.csv("./DataCleaned/buildCTQY.csv")
+sancompsCTQY <- read.csv("./DataCleaned/sancompsCTQY.csv")
+foodCTY <- read.csv("./DataCleaned/foodCTY.csv")
+allACS <- read.csv("./DataCleaned/allACS.csv")
+tracts <- readOGR("./DataRaw/GIS", "chicagoCensusTracts2010")
 
 # census tract areas------------------------------------------------------------
 
@@ -23,14 +28,15 @@ names(tractAreas)[1] <- "tract"
 
 # combine data together---------------------------------------------------------
 
-fullDat <- plyr::join_all(list(ratsCTQY, buildCTQY, sancompsCTQY), 
+fullDat <- plyr::join_all(list(ratsCTQY, buildCTQY, sancompsCTQY),
                           by = c("tract", "year", "quarter"), type = "left")
 
-# add in food data (by tract and year)
+# add in restaurant data (by tract and year)
 fullDat <- left_join(fullDat, foodCTY, by = c("tract", "year"))
 
-# add socioeconomic data (by tract and year)
+# add ACS socioeconomic data (by tract and year)
 fullDat <- left_join(fullDat, allACS, by = c("tract", "year"))
+
 
 # add tract area (sqkm)
 # need to format tract as character, place leading zero if it's only five digits
@@ -38,7 +44,7 @@ fullDat$tract <- format(fullDat$tract, width = 6)
 fullDat$tract <- gsub(" ", "0", fullDat$tract)
 fullDat <- left_join(fullDat, tractAreas, by = "tract")
 
-# remove two tracts (980000 and 980100) that are part of O'Hare and Midway
+# remove two tracts (980000 and 980100) that are part of O'Hare and Midway airports
 # no socioeconomic data for them
 final <- fullDat %>% 
   filter(!(tract %in% c("980000", "980100"))) %>% 
@@ -49,6 +55,4 @@ final <- fullDat %>%
 final <- final[complete.cases(final), ]
 
 # save dataset to use for models
-#write.csv(final, "./Data/ratCompPredsCT.csv", row.names = FALSE)
-
-#write.csv(final, "./Data/ratCompPredsCT_baited.csv", row.names = FALSE)
+#write.csv(final, "./DataCleaned/dataformodels.csv", row.names = FALSE)

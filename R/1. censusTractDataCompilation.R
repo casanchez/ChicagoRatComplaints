@@ -1,3 +1,11 @@
+# Code to accompany Sanchez et al. 2021. Social and environmental correlates
+# of rat complaints in Chicago. Journal of Urban Ecology. doi: 10.1093/jue/juab006
+
+# This script cleans complaint data (rat complaints, garbage complaints, dog 
+# feces complaints), restaurant inspection data, and building permit data.
+# It generates the number of rat complaints in each Chicago census tract 
+# per quarter, per year, from 2011-2017
+
 # load packages-----------------------------------------------------------------
 library(dplyr)
 library(sp)
@@ -5,38 +13,50 @@ library(rgdal)
 library(fitdistrplus)
 library(glmmTMB)
 library(forcats)
+library(ggplot2)
+library(sf)
 
 '%!in%' <- function(x,y)!('%in%'(x,y))
 
 # load data---------------------------------------------------------------------
 
-options(digits = 6)
-
-# some are large files, can take a while
+options(digits = 6) # helps for viewing census tract numbers
 
 # https://data.cityofchicago.org/Service-Requests/311-Service-Requests-Rodent-Baiting-No-Duplicates/uqhs-j723
-rats <- read.csv("./Data/cleanedComplaints.csv", header = TRUE)
+# downloaded 6/28/2019
+rats <- read.csv("./DataRaw/311_Service_Requests_-_Rodent_Baiting_-_No_Duplicates.csv", 
+                 header = TRUE, na.strings = "")
 
 # https://data.cityofchicago.org/Buildings/Building-Permits/ydr8-5enu
-bPermits <- read.csv("./Data/buildingPermits.csv", header = TRUE, 
+# downloaded 6/27/2019
+bPermits <- read.csv("./DataRaw/Building_Permits.csv", header = TRUE, 
                      na.strings = "")
 
 # https://data.cityofchicago.org/Service-Requests/311-Service-Requests-Sanitation-Code-Complaints-No/rccf-5427
-san <- read.csv("./Data/sanitationComplaints.csv", header = TRUE, 
-                na.strings = "")
+# downloaded 6/28/2019
+san <- read.csv("./DataRaw/311_Service_Requests_-_Sanitation_Code_Complaints_-_No_Duplicates.csv", 
+                header = TRUE, na.strings = "")
 
 # https://data.cityofchicago.org/Health-Human-Services/Food-Inspections/4ijn-s7e5
-food <- read.csv("./Data/foodInspections.csv", header = TRUE, na.strings = "")
+# downloaded 8/1/2019
+food <- read.csv("./DataRaw/Food_Inspections.csv", header = TRUE, 
+                 na.strings = "")
 
 # https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-Census-Tracts-2010/5jrd-6zik
-tracts <- readOGR("./Data/GIS","chicagoCensusTracts2010")
+# downloaded 8/13/2019
+tracts <- readOGR("./DataRaw/GIS", "chicagoCensusTracts2010")
 
 # rat complaints data-----------------------------------------------------------
 
 # add month/quarter/year cols, restrict dates
+# restrict to most recent action = inspected and baited
 ratShort <- rats %>% 
-  dplyr::select(-X) %>% 
+  rename(Creation.Date = ï..Creation.Date) %>% 
+  filter(!is.na(Latitude)) %>% 
   mutate_at(vars(Creation.Date), ~as.Date(., "%m/%d/%Y")) %>% 
+  filter(Creation.Date >= as.Date("2011-01-01") &
+           Creation.Date <= as.Date("2017-12-31")) %>% 
+  filter(Most.Recent.Action == "Inspected and baited") %>% 
   mutate(month = format(Creation.Date, "%m")) %>% 
   mutate(quarter = as.factor(month)) %>% 
   mutate(quarter = fct_collapse(quarter, 
@@ -45,8 +65,6 @@ ratShort <- rats %>%
                                 Q3 = c("07", "08", "09"),
                                 Q4 = c("10", "11", "12"))) %>% 
   mutate(year = format(Creation.Date, "%Y")) %>% 
-  filter(Creation.Date >= as.Date("2011-01-01") &
-           Creation.Date <= as.Date("2017-12-31")) %>% 
   mutate_at(vars(year), as.factor)
 
 # pull out coordinates of rat complaints
@@ -65,29 +83,7 @@ ratsCTQY <- ratShort %>%
   group_by(tract, year, quarter, .drop = FALSE) %>% 
   summarize(ratcomp = n())
 
-#write.csv(ratsCTQY, "./Data/ratsCTQY.csv", row.names = FALSE)
-
-# do the same but for only Most.Recent.Action = "Inspected and baited"
-# calculate number of rat complaints per tract, each quarter of each year
-ratsCTQYbaited <- ratShort %>% 
-  filter(!is.na(tract)) %>%  # remove points not assigned to a tract
-  filter(Most.Recent.Action == "Inspected and baited") %>% 
-  group_by(tract, year, quarter, .drop = FALSE) %>% 
-  summarize(ratcomp = n())
-
-#write.csv(ratsCTQYbaited, "./Data/ratsCTQYbaited.csv", row.names = FALSE)
-
-
-# looking at rat complaints by quarter of each year (for table/figure)
-# ratsQY <- ratShort %>%
-#   filter(!is.na(tract)) %>%
-#   group_by(year, quarter, .drop = FALSE) %>%
-#   summarize(ratcomp = n())
-# 
-# ggplot(ratsQY) +
-#   geom_line(aes(x = quarter, y = ratcomp, group = year, color = year), 
-#             size = 2) +
-#   theme_bw()
+#write.csv(ratsCTQY, "./DataCleaned/ratsCTQY.csv", row.names = FALSE)
 
 # building permit data----------------------------------------------------------
 
@@ -123,7 +119,7 @@ buildCTQY <- bpShort %>%
   group_by(tract, year, quarter, .drop = FALSE) %>% 
   summarize(bPerm = n())
 
-#write.csv(buildCTQY, "./Data/buildCTQY.csv", row.names = FALSE)
+#write.csv(buildCTQY, "./DataCleaned/buildCTQY.csv", row.names = FALSE)
 
 # sanitation complaint data-----------------------------------------------------
 
@@ -168,7 +164,7 @@ sancompsCTQY <- sanShort %>%
   summarize(nviol = n()) %>% 
   tidyr::spread(violType, nviol)
 
-#write.csv(sancompsCTQY, "./Data/sancompsCTQY.csv", row.names = FALSE)
+#write.csv(sancompsCTQY, "./DataCleaned/sancompsCTQY.csv", row.names = FALSE)
 
 # food inspections--------------------------------------------------------------
 
@@ -199,8 +195,7 @@ foodPts <- SpatialPoints(foodShort[, c("Longitude", "Latitude")],
 foodPts2 <- over(foodPts, tracts)
 foodShort$tract <- foodPts2$tractce10
 
-# only aggregating by year, not quarter,
-# there probably isn't much quarter to quarter change
+# only aggregating by year b/c there probably isn't much quarterly change
 # keeping only distinct addresses within a year, to avoid double-counting
 # ie if there were two inspections of the same place within the same year
 foodCTY <- foodShort %>% 
@@ -209,92 +204,4 @@ foodCTY <- foodShort %>%
   distinct(Address, .keep_all = TRUE) %>% 
   summarize(food = n())
 
-#write.csv(foodCTY, "./Data/foodCTY.csv", row.names = FALSE)
-
-
-# plotting rat complaints and predictors (in 2017)------------------------------
-library(ggplot2)
-library(sf)
-
-CA_sf <- st_read("./Data/GIS/chicagoCommAreas.shp")
-
-# rat complaints
-ggplot() + 
-  geom_sf(data = CA_sf, color = "black", fill = "gray90") + 
-  geom_point(data = subset(ratShort, year == 2017), 
-             aes(x = Longitude, y = Latitude), 
-             shape = 19, color = "red", size = 0.5) +
-  ggtitle("Rat complaints 2017") +
-  theme_bw() +
-  coord_sf() 
-
-# ggsave(filename = "Rat complaints 2017.png", device = "png",
-#        path = "./Figures/", dpi = 600, width = 7, height = 7, units = "in")
-
-# restaurants and other food establishments
-ggplot() + 
-  geom_sf(data = CA_sf, color = "black", fill = "gray90") + 
-  geom_point(data = subset(foodShort, year == 2017), 
-             aes(x = Longitude, y = Latitude), 
-             shape = 19, color = "red", size = 0.5) +
-  ggtitle("Restaurants & food establishments 2017") +
-  theme_bw() +
-  coord_sf() 
-
-# ggsave(filename = "Food establishments 2017.png", device = "png",
-#        path = "./Figures/", dpi = 600, width = 7, height = 7, units = "in")
-
-# construction and demolition permits
-ggplot() + 
-  theme_bw() +
-  geom_sf(data = CA_sf, color = "black", fill = "gray90") + 
-  geom_point(data = subset(bpShort, year == 2017), 
-             aes(x = LONGITUDE, y = LATITUDE, colour = PERMIT_TYPE),  
-             shape = 19, size = 1) +
-  scale_color_manual(values = c("#984ea3", "#4daf4a"),
-                     labels = c("Construction", "Demolition")) +
-  ggtitle("Construction and demolition permits 2017") +
-  theme(legend.position = c(0.25, 0.16)) +
-  coord_sf() 
-
-# ggsave(filename = "Construction and demolition permits 2017.png",
-#        device = "png", path = "./Figures/", dpi = 600, width = 7, height = 7,
-#        units = "in")
-
-# sanitation complaints
-ggplot() + 
-  theme_bw() +
-  geom_sf(data = CA_sf, color = "black", fill = "gray90") + 
-  geom_point(data = sanShort %>% 
-               filter(year == 2017) %>% 
-               filter(violType == "Garbage"), 
-             aes(x = Longitude, y = Latitude),  
-             shape = 19, size = 1, color = "yellow") +
-  geom_point(data = sanShort %>% 
-               filter(year == 2017) %>% 
-               filter(violType == "Dog feces"), 
-             aes(x = Longitude, y = Latitude),  
-             shape = 19, size = 1, color = "red") +
-  scale_color_manual(labels = c("Garbage", "Dog feces")) + 
-  ggtitle("Sanitation complaints 2017") +
-  theme(legend.position = c(0.23, 0.16)) +
-  coord_sf() 
-
-
-# ggplot() + 
-#   theme_bw() +
-#   geom_sf(data = CA_sf, color = "black", fill = "gray90") + 
-#   geom_point(data = sanShort %>% 
-#                filter(year == 2017) %>% 
-#                filter(violType == "Garbage" | violType == "Dog feces"), 
-#              aes(x = Longitude, y = Latitude, color = violType),  
-#              shape = 19, size = 1) +
-#   scale_color_manual(values = c("red", "yellow"),
-#                      labels = c("Dog feces", "Garbage")) + 
-#   ggtitle("Sanitation complaints 2017") +
-#   theme(legend.position = c(0.23, 0.16)) +
-#   coord_sf() 
-
-# ggsave(filename = "Sanitation complaints 2017.png",
-#        device = "png", path = "./Figures/", dpi = 600, width = 7, height = 7,
-#        units = "in")
+#write.csv(foodCTY, "./DataCleaned/foodCTY.csv", row.names = FALSE)
