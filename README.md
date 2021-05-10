@@ -3,7 +3,7 @@
 A repository for: 
 ================
 
-Sanchez CA, Rios MJ, Murray MH. 2021. Social and environmental correlates of rat 
+Sánchez CA, Rios MJ, Murray MH. 2021. Social and environmental correlates of rat 
 complaints in Chicago. Journal of Urban Ecology. doi: 10.1093/jue/juab006
 
 
